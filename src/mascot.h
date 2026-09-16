@@ -195,6 +195,13 @@ public:
   // Look about, as if something just caught her attention.
   Q_INVOKABLE void glanceAbout();
 
+  // Sway along while something is playing. MPRIS gives no beat, so this is a
+  // rhythm of her own rather than the music's; she is keeping time with the
+  // fact of it.
+  Q_INVOKABLE void setSwaying(bool swaying);
+  bool swaying() const { return m_swayTarget > 0.5; }
+  qreal sway() const { return m_sway; }
+
   // Drive one frame. `dt` is seconds.
   Q_INVOKABLE void tick(qreal dt);
 
@@ -310,6 +317,7 @@ private:
   QVector<int> m_anticBag; // shuffled, dealt one at a time, refilled when empty
   qreal m_breathe = 0.0;  // -1..1, the slow idle swell
   qreal m_drowsy = 0.0;   // 0..1, how close she is to nodding off
+  qreal m_sway = 0.0, m_swayTarget = 0.0, m_swayPhase = 0.0, m_swayRoll = 0.0;
   qreal m_cooldown = 0.0; // rate-limit on reactions
 
   bool m_reduced = false;

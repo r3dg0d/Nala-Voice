@@ -263,6 +263,13 @@ mean, both behind a single `React to your desktop` switch:
   not flicker her. While busy she thinks on a cadence rather than being held
   in it, so a long build gets the occasional glance rather than a mascot stuck
   in a permanent spin.
+- **She sways while something is playing**, read over MPRIS. Worth being
+  plain about the limit: MPRIS reports what is playing, whether it is playing
+  and where the playhead is. It carries no amplitude and no beat, so there is
+  nothing to synchronise to. She keeps a rhythm of her own, slow enough to
+  read as keeping time rather than as a failed attempt at syncing. Reacting to
+  the sound itself would mean tapping the audio monitor, which this
+  deliberately does not do.
 - **The badge follows real notifications.** Noctalia is the notification
   daemon on the desktop this is built for and keeps a history file whose
   entries carry an ever-climbing serial, so a jump in the highest serial is a

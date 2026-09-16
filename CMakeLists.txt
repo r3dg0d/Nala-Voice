@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.10 REQUIRED COMPONENTS Core Gui Widgets Quick Qml ShaderTools Test)
+find_package(Qt6 6.10 REQUIRED COMPONENTS Core DBus Gui Widgets Quick Qml ShaderTools Test)
 # Wayland overlay placement on Hyprland. Optional so the app still builds and
 # runs (as a plain floating window) on compositors without layer-shell.
 find_package(LayerShellQt 6.7 QUIET CONFIG)
@@ -16,6 +16,7 @@ qt_add_executable(nala
   src/compositor.cpp src/compositor.h
   src/cursor.cpp src/cursor.h
   src/mascot.cpp src/mascot.h
+  src/music.cpp src/music.h
   src/orbits.cpp src/orbits.h
   src/selftest.cpp src/selftest.h
   src/trail.cpp src/trail.h
@@ -31,7 +32,7 @@ qt_add_resources(nala "ui" PREFIX / FILES
   assets/nala.svg)
 
 target_link_libraries(nala PRIVATE
-  Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::Test)
+  Qt6::Core Qt6::DBus Qt6::Gui Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::Test)
 
 if(LayerShellQt_FOUND)
   target_link_libraries(nala PRIVATE LayerShellQt::Interface)

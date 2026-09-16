@@ -3,6 +3,7 @@
 #include "compositor.h"
 #include "cursor.h"
 #include "mascot.h"
+#include "music.h"
 #include "theme.h"
 
 #include <QCoreApplication>
@@ -15,6 +16,7 @@
 #include <QRandomGenerator>
 #include <iterator>
 #include "mascot.h"
+#include "music.h"
 #include <QRegion>
 #include <QSaveFile>
 #include <QScreen>
@@ -49,10 +51,10 @@ QString autostartPath() {
 
 Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
                  Theme *theme, Cursor *cursor, Activity *activity,
-                 Compositor *compositor, QObject *parent)
+                 Compositor *compositor, Music *music, QObject *parent)
     : QObject(parent), m_configPath(std::move(configPath)), m_preview(preview),
       m_testing(testing), m_mascot(mascot), m_theme(theme), m_cursor(cursor),
-      m_activity(activity), m_compositor(compositor) {
+      m_activity(activity), m_compositor(compositor), m_music(music) {
   m_saveTimer.setSingleShot(true);
   m_saveTimer.setInterval(400); // coalesce slider drags into one write
   connect(&m_saveTimer, &QTimer::timeout, this, &Backend::save);
@@ -111,6 +113,17 @@ Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
         return;
       m_mascot->wake();
       m_mascot->glanceAbout();
+    });
+  }
+
+  if (m_music && m_mascot) {
+    connect(m_music, &Music::playingChanged, this, [this](bool playing) {
+      m_mascot->setSwaying(m_reactToDesktop && playing);
+    });
+    // A new track is worth looking up for.
+    connect(m_music, &Music::trackChanged, this, [this] {
+      if (m_reactToDesktop && m_music->playing())
+        m_mascot->glanceAbout();
     });
   }
 
@@ -193,6 +206,11 @@ void Backend::applyToMascot() {
     m_activity->setActive(m_reactToDesktop && !m_testing);
   if (m_compositor)
     m_compositor->setActive(m_reactToDesktop && !m_testing);
+  if (m_music) {
+    m_music->setActive(m_reactToDesktop && !m_testing);
+    if (m_mascot)
+      m_mascot->setSwaying(m_reactToDesktop && m_music->playing());
+  }
   if (!m_followCursor)
     m_mascot->lookIdle();
 }
@@ -632,7 +650,7 @@ QString Backend::status() const {
   const int mood = m_mascot ? m_mascot->mood() : 0;
   const int moodCount = int(std::size(moods));
   return QStringLiteral("Nala is running — size %1%, %2, at %3%/%4%, %5, %6 "
-                        "(form %7→%8 %9%)")
+                        "(form %7→%8 %9%)%10")
       .arg(int(std::lround(m_size * 100)))
       .arg(m_colorMode == "theme" ? "following the desktop theme" : "ink")
       .arg(int(std::lround(m_place.x() * 100)))
@@ -644,7 +662,8 @@ QString Backend::status() const {
                : "cursor unavailable")
       .arg(m_mascot ? m_mascot->formA() : -1)
       .arg(m_mascot ? m_mascot->formB() : -1)
-      .arg(m_mascot ? int(std::lround(m_mascot->formMix() * 100)) : 0);
+      .arg(m_mascot ? int(std::lround(m_mascot->formMix() * 100)) : 0)
+      .arg(m_mascot && m_mascot->swaying() ? ", swaying" : "");
 }
 
 // --- autostart -------------------------------------------------------------

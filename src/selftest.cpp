@@ -2,6 +2,7 @@
 #include "activity.h"
 #include "backend.h"
 #include "compositor.h"
+#include "music.h"
 #include "mascot.h"
 #include "orbits.h"
 #include "theme.h"
@@ -238,7 +239,7 @@ int captureFilm(QApplication &app, Mascot &mascot, Orbits &orbits,
 
 int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
                 Orbits &orbits, Theme &theme, Activity &activity,
-                Compositor &compositor, QQuickWindow *window,
+                Compositor &compositor, Music &music, QQuickWindow *window,
                 const QStringList &warnings, const QString &captureDir) {
   int failures = 0;
   QTextStream out(stdout);
@@ -1060,6 +1061,72 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     mascot.setIdleAntics(false);
     mascot.setSleepWhenIdle(true);
     backend.configure("reactToDesktop", true);
+  }
+
+  // --- swaying to music ----------------------------------------------------
+  //
+  // MPRIS carries no beat, so she keeps a rhythm of her own. What is tested
+  // here is that she starts and stops with the music, moves while she is at
+  // it, and eases rather than snapping.
+  {
+    backend.configure("reactToDesktop", true);
+    mascot.rest();
+    mascot.setIdleAntics(false);
+    mascot.setReducedMotion(false);
+    check(!mascot.swaying(), "she is still when nothing is playing");
+
+    music.injectStatus(QStringLiteral("Playing"));
+    check(mascot.swaying(), "she starts when something plays");
+
+    qreal lowX = 1.0, highX = -1.0;
+    for (int i = 0; i < 60 * 6; ++i) {
+      mascot.tick(1.0 / 60.0);
+      lowX = std::min(lowX, mascot.bobX());
+      highX = std::max(highX, mascot.bobX());
+    }
+    out << "   sway carries her " << (highX - lowX) << " side to side\n";
+    check(highX - lowX > 0.05, "and moves from side to side while she does");
+
+    // Eased, not snapped.
+    music.injectStatus(QStringLiteral("Paused"));
+    check(!mascot.swaying(), "she stops when the music does");
+    mascot.tick(1.0 / 60.0);
+    check(mascot.sway() > 0.2, "winding down rather than stopping dead");
+    for (int i = 0; i < 60 * 5; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(mascot.sway() < 0.05, "and comes to rest");
+
+    // Reduced motion means still.
+    music.injectStatus(QStringLiteral("Playing"));
+    mascot.setReducedMotion(true);
+    for (int i = 0; i < 60 * 4; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(qAbs(mascot.bobX()) < 0.01, "reduced motion keeps her still anyway");
+    mascot.setReducedMotion(false);
+    music.injectStatus(QStringLiteral("Stopped"));
+    for (int i = 0; i < 60 * 5; ++i)
+      mascot.tick(1.0 / 60.0);
+
+    // A new track catches her eye.
+    music.injectStatus(QStringLiteral("Playing"));
+    mascot.lookIdle();
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    const qreal before = mascot.eyeLeftX();
+    music.injectTrack(QStringLiteral("something else"));
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(qAbs(mascot.eyeLeftX() - before) > 0.04, "a new track catches her eye");
+
+    // And the switch really switches it off.
+    backend.configure("reactToDesktop", false);
+    music.injectStatus(QStringLiteral("Paused"));
+    music.injectStatus(QStringLiteral("Playing"));
+    check(!mascot.swaying(), "unless she has been told not to");
+    backend.configure("reactToDesktop", true);
+    music.injectStatus(QStringLiteral("Stopped"));
+    for (int i = 0; i < 60 * 5; ++i)
+      mascot.tick(1.0 / 60.0);
   }
 
   // --- nodding off ---------------------------------------------------------

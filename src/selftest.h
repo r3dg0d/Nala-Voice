@@ -9,6 +9,7 @@ class Orbits;
 class Theme;
 class Activity;
 class Compositor;
+class Music;
 
 // Headless acceptance pass. Returns the process exit code: 0 when every check
 // passes. Run with `ctest` or `nala --self-test`.
@@ -25,5 +26,5 @@ int captureFilm(QApplication &app, Mascot &mascot, Orbits &orbits,
 
 int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
                 Orbits &orbits, Theme &theme, Activity &activity,
-                Compositor &compositor, QQuickWindow *window,
+                Compositor &compositor, Music &music, QQuickWindow *window,
                 const QStringList &warnings, const QString &captureDir);

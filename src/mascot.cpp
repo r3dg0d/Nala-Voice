@@ -93,6 +93,11 @@ constexpr qreal kSleepAfter = 110.0;
 // She starts to flag well before she actually goes under.
 constexpr qreal kDrowsyAfter = 55.0;
 
+// Her swaying tempo. Not the music's: MPRIS carries no beat, so this is a
+// rhythm of her own, slow enough to look like keeping time rather than a
+// failed attempt at syncing.
+constexpr qreal kSwayRate = 2.2; // rad/s
+
 qreal easeInOut(qreal t) {
   t = qBound(0.0, t, 1.0);
   return t * t * (3.0 - 2.0 * t);
@@ -201,7 +206,7 @@ void Mascot::buildTransform() {
   const qreal f10 = -shrink * dx * dy, f11 = 1.0 - shrink * dy * dy;
 
   // Then the in-plane spin, with her settling lean riding along on it.
-  const qreal angle = m_spin + m_roll;
+  const qreal angle = m_spin + m_roll + m_swayRoll;
   const qreal c = std::cos(angle), s = std::sin(angle);
   const qreal r00 = c * f00 - s * f10, r01 = c * f01 - s * f11;
   const qreal r10 = s * f00 + c * f10, r11 = s * f01 + c * f11;
@@ -647,6 +652,19 @@ void Mascot::tick(qreal dt) {
     m_bobX = std::sin(m_time * 0.61 + 1.1) * 0.006;
   }
 
+  // Swaying along to whatever is playing. Layered on top of the idle bob, and
+  // eased in and out so she does not start or stop dead when a track does.
+  settle(m_sway, m_reduced ? 0.0 : m_swayTarget, dt, 2.2);
+  if (m_sway > 0.005) {
+    m_swayPhase += dt * kSwayRate;
+    m_bobX += std::sin(m_swayPhase) * 0.075 * m_sway;
+    // Twice the rate, so she dips at each side rather than once a cycle.
+    m_bobY += -std::abs(std::sin(m_swayPhase)) * 0.03 * m_sway;
+    m_swayRoll = std::sin(m_swayPhase) * 0.09 * m_sway;
+  } else {
+    m_swayRoll = 0.0;
+  }
+
   // The trail lags the speed a little, so it streams out as she gets going
   // and lingers for a moment when she stops.
   settle(m_dashLength, m_mood == Dashing ? 0.35 + 0.65 * m_dashSpeed : 0.0, dt,
@@ -811,6 +829,10 @@ void Mascot::lookAt(qreal x, qreal y) {
   m_pitchTarget = std::tanh(y * 0.45) * kMaxPitch;
 }
 
+void Mascot::setSwaying(bool swaying) {
+  m_swayTarget = swaying ? 1.0 : 0.0;
+}
+
 void Mascot::glanceAbout() {
   if (m_mood != Resting)
     return;
@@ -868,6 +890,7 @@ void Mascot::rest() {
   m_bobX = m_bobY = 0.0;
   m_breathe = 0.0;
   m_drowsy = 0.0;
+  m_sway = m_swayTarget = m_swayRoll = 0.0;
   // Lids too: without this a rest() taken mid-blink leaves an eye half shut,
   // and anything that measures from here starts off a wrong baseline.
   m_blinkPhase = -1.0;

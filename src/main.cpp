@@ -3,6 +3,7 @@
 #include "compositor.h"
 #include "cursor.h"
 #include "mascot.h"
+#include "music.h"
 #include "orbits.h"
 #include "selftest.h"
 #include "trail.h"
@@ -169,8 +170,9 @@ int main(int argc, char **argv) {
   Cursor cursor;
   Activity activity(themeState);
   Compositor compositor;
+  Music music;
   Backend backend(configPath, preview, testing, &mascot, &theme, &cursor,
-                  &activity, &compositor);
+                  &activity, &compositor, &music);
 
   qmlRegisterType<OrbitLayer>("Nala", 1, 0, "OrbitLayer");
   qmlRegisterType<Trail>("Nala", 1, 0, "Trail");
@@ -290,7 +292,7 @@ int main(int argc, char **argv) {
 
   if (testing)
     return runSelfTest(app, backend, mascot, orbits, theme, activity,
-                       compositor, window, warnings,
+                       compositor, music, window, warnings,
                        parser.value("capture-dir"));
 
   return app.exec();

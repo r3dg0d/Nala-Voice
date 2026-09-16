@@ -14,6 +14,7 @@ class Theme;
 class Cursor;
 class Activity;
 class Compositor;
+class Music;
 
 // Preferences, placement and the glue between the mascot and the desktop.
 class Backend : public QObject {
@@ -38,7 +39,7 @@ class Backend : public QObject {
 public:
   Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
           Theme *theme, Cursor *cursor, Activity *activity,
-          Compositor *compositor, QObject *parent = nullptr);
+          Compositor *compositor, Music *music, QObject *parent = nullptr);
 
   qreal size() const { return m_size; }
   QString colorMode() const { return m_colorMode; }
@@ -121,6 +122,7 @@ private:
   Cursor *m_cursor = nullptr;
   Activity *m_activity = nullptr;
   Compositor *m_compositor = nullptr;
+  Music *m_music = nullptr;
   bool m_outOfTheWay = false;
   qreal m_sinceBusyThought = 0.0;
   QQuickWindow *m_window = nullptr;
