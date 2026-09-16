@@ -814,7 +814,10 @@ void Mascot::lookAt(qreal x, qreal y) {
 void Mascot::glanceAbout() {
   if (m_mood != Resting)
     return;
-  m_yawTarget = random(-kMaxYaw * 0.7, kMaxYaw * 0.8);
+  // Always to the other side of where she is already looking. A glance that
+  // happens to land where her eyes already were is not a glance.
+  m_yawTarget = m_yaw > 0.0 ? random(-kMaxYaw * 0.8, -kMaxYaw * 0.25)
+                            : random(kMaxYaw * 0.25, kMaxYaw * 0.8);
   m_pitchTarget = random(-kMaxPitch * 0.7, kMaxPitch * 0.4);
   m_lookingAtCursor = false;
   m_glance = random(3.5, 6.0); // do not immediately look somewhere else

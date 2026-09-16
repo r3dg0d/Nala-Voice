@@ -253,6 +253,11 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     QDir().mkpath(captureDir);
 
   const auto capture = [&](const QString &name) {
+    // Never grab her mid-blink: an appearance check that lands on a closed eye
+    // reports that the eyes are missing.
+    for (int i = 0; i < 90 && mascot.eyeLeftHeight() < mascot.eyeHeight() * 0.8;
+         ++i)
+      mascot.tick(1.0 / 60.0);
     // The scene only rebuilds when the model has published a frame, so make
     // sure one has been emitted and presented before grabbing.
     window->requestUpdate();
@@ -265,6 +270,12 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
 
   // Let the window map and the first frames land before measuring anything.
   QTest::qWait(400);
+
+  // Held still by default. Almost every check below measures one specific
+  // thing, and a spontaneous flourish landing mid-measurement answers for it.
+  // Only the two blocks that are about her spontaneous behaviour turn this
+  // back on, and they turn it off again afterwards.
+  mascot.setIdleAntics(false);
   check(window->isVisible(), "the companion window is up");
 
   // --- preferences ---------------------------------------------------------
@@ -493,7 +504,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     settleGaze();
     check(qAbs(mascot.eyeRightY() - mascot.eyeLeftY()) < 0.02,
           "the pair is level when looking straight ahead");
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
   }
 
   mascot.lookIdle();
@@ -543,7 +554,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     mascot.tick(0.04);
   check(mascot.formB() == Mascot::Circle, "the queued morph then runs");
 
-  mascot.setIdleAntics(true);
+  mascot.setIdleAntics(false);
 
   // --- blink ---------------------------------------------------------------
   //
@@ -587,7 +598,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
           "a blink takes about as long as the reference's");
     check(closing > opening,
           "her lids close more slowly than they open, as the reference's do");
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
   }
 
   // --- wink ----------------------------------------------------------------
@@ -624,7 +635,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     }
     check(!mascot.winking(), "the wink ends");
     check(recovered > open * 0.75, "and the eye opens again");
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
   }
 
   // --- scatter -------------------------------------------------------------
@@ -819,7 +830,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
               qAbs(mascot.squashX() - 1.0) < 0.001,
           "reduced motion holds her still");
     mascot.setReducedMotion(false);
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
 
     // An alert swings into its lean and stops; the reference never wobbles.
     mascot.rest();
@@ -896,7 +907,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   // showed them at all.
   {
     mascot.rest();
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(true); // this block is about her own behaviour
     mascot.setSleepWhenIdle(false); // measure the repertoire, not the nap
     mascot.setReducedMotion(false);
     mascot.lookIdle();
@@ -927,6 +938,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   // winks, but does not morph, tumble or come apart.
   {
     mascot.rest();
+    mascot.setIdleAntics(true); // and so is this one
     mascot.setReducedMotion(true);
     mascot.setSleepWhenIdle(false);
     bool moved = false, morphed = false, scattered = false;
@@ -989,7 +1001,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
       mascot.tick(1.0 / 60.0);
     check(mascot.badge() < 0.1, "unless she has been told not to");
     backend.configure("reactToDesktop", true);
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
     mascot.setSleepWhenIdle(true);
   }
 
@@ -1045,7 +1057,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
 
     // And the switch really switches it off.
     backend.configure("reactToDesktop", false);
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
     mascot.setSleepWhenIdle(true);
     backend.configure("reactToDesktop", true);
   }
@@ -1079,10 +1091,10 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
       mascot.tick(0.1);
     check(mascot.sleeping(), "then she goes under");
     mascot.wake();
-    mascot.setIdleAntics(true);
+    mascot.setIdleAntics(false);
   }
 
-  mascot.setIdleAntics(true);
+  mascot.setIdleAntics(false);
 
   // --- sleep ---------------------------------------------------------------
   mascot.setSleepWhenIdle(true);
@@ -1096,8 +1108,12 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     mascot.tick(0.04);
 
   // --- rendering -----------------------------------------------------------
+  // Pinned: these measure where her eyes sit, so a spontaneous glance moving
+  // them mid-grab would answer for the geometry under test.
+  mascot.setIdleAntics(false);
   mascot.setReducedMotion(true);
   mascot.rest();
+  mascot.lookIdle();
   orbits.setIntensity(0.0);
   for (int i = 0; i < 25; ++i)
     mascot.tick(0.04);
