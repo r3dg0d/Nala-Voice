@@ -188,10 +188,41 @@ figure is the one that matters: near-complete orbits overshoot it by more than
 double, so the arcs are partial. They read as arcs rather than as scribbles
 because the stroke barely tapers, not because they are long.
 
-**She tumbles while thinking** at +122 deg over 2.10 s, i.e. 1.015 rad/s. This
-has to accumulate in a term of its own: folded into the roll, which settles
-towards a target, it is simply pulled back out again every frame and she never
-turns at all.
+**She tumbles in three dimensions while thinking, not flat.** Measured over
+the stretch where she is a triangle throughout:
+
+| | Reference | Nala |
+| --- | --- | --- |
+| Apparent spin | 1.46 rad/s | 1.46 |
+| Silhouette area swing | 42% | 41% |
+| Bounding-box fill | 0.444 to 0.661 | 0.511 to 0.589 |
+| Width / height, low end | 0.905 | 0.875 |
+
+A flat spin holds all of those constant. Losing 42% of your area as you turn
+means the shape is foreshortening, so she is modelled as a flat plate that
+spins in the screen plane while tilting away from face-on. A plate tilted by
+`tilt` about an axis lying in the screen plane compresses along the
+perpendicular to that axis by `cos(tilt)`, which is both the projection and,
+conveniently, the projected area.
+
+Two things that are easy to get wrong here:
+
+- **The tilt axis has to turn too.** Pinned to one direction she does not
+  tumble, she just looks squashed, and no amount of tuning the tilt fixes it.
+- **The spin has to live outside the roll.** The roll settles towards a
+  target, so a spin folded into it is pulled straight back out every frame and
+  she never turns at all. That bug had her spinning at 0.04 rad/s against the
+  reference's 1.46.
+
+She also **unfolds back to a circle while the rings are still up**, rather than
+at the moment they start to fade. The reference does the two in sequence;
+doing them together reads as one abrupt change.
+
+A warning about measuring this. The orbit arcs are coloured, and at their
+saturation blue sits at luminance 136. A "dark pixels are the body" threshold
+loose enough to include it swallows the arcs into the silhouette, balloons the
+bounding box, and reports a fill of 0.32 where the truth is 0.55. Mask on
+saturation as well as luminance.
 
 ## Timing
 

@@ -75,7 +75,7 @@ Window {
             property real squashX: mascot.squashX
             property real squashY: mascot.squashY
             property real bodyScale: mascot.bodyScale
-            property real roll: mascot.roll
+            property vector4d bodyTransform: mascot.bodyTransform
 
             property vector2d eyeLeft: Qt.vector2d(mascot.eyeLeftX, mascot.eyeLeftY)
             property vector2d eyeRight: Qt.vector2d(mascot.eyeRightX, mascot.eyeRightY)

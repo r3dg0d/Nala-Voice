@@ -25,7 +25,11 @@ layout(std140, binding = 0) uniform buf {
     float squashX;
     float squashY;
     float bodyScale;
-    float roll;
+    // Inverse of the 2x2 that projects her onto the screen, as
+    // (m00, m01, m10, m11). Carries both the in-plane lean and the tumble,
+    // which is a rotation in three dimensions: a flat plate turning away from
+    // the viewer foreshortens, and an in-plane rotation alone cannot.
+    vec4 bodyTransform;
 
     // Eyes, in units of the body radius, relative to the body centre. Each
     // carries its own scale because the two sit at different places on the
@@ -224,7 +228,8 @@ void main() {
 
     // Undo the body transform so the SDFs stay in their own tidy space.
     p /= max(bodyScale, 0.0001);
-    p = rotate(p, -roll);
+    p = vec2(bodyTransform.x * p.x + bodyTransform.y * p.y,
+             bodyTransform.z * p.x + bodyTransform.w * p.y);
     p /= vec2(max(squashX, 0.0001), max(squashY, 0.0001));
     p.y = -p.y; // screen y grows downward; the shapes are authored y-up
 

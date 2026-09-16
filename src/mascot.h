@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QVariantList>
+#include <QVector4D>
 #include <QVector>
 #include <QPointF>
 #include <QRandomGenerator>
@@ -25,6 +26,7 @@ class Mascot : public QObject {
   Q_PROPERTY(qreal squashY READ squashY NOTIFY frame)
   Q_PROPERTY(qreal bodyScale READ bodyScale NOTIFY frame)
   Q_PROPERTY(qreal roll READ roll NOTIFY frame)
+  Q_PROPERTY(QVector4D bodyTransform READ bodyTransform NOTIFY frame)
   Q_PROPERTY(qreal bobX READ bobX NOTIFY frame)
   Q_PROPERTY(qreal bobY READ bobY NOTIFY frame)
 
@@ -98,9 +100,20 @@ public:
   qreal squashX() const { return m_squashX * (1.0 + kBreatheDepth * m_breathe); }
   qreal squashY() const { return m_squashY * (1.0 - kBreatheDepth * m_breathe); }
   qreal bodyScale() const { return m_scale; }
-  // The settling lean plus whatever she has spun through while thinking.
-  qreal roll() const { return m_roll + m_tumble; }
+  // The settling lean. The thinking tumble is not part of this: it is a
+  // rotation in three dimensions and lives in bodyTransform().
+  qreal roll() const { return m_roll; }
   qreal lean() const { return m_roll; }
+  qreal tumble() const { return m_spin; }
+
+  // Inverse of the 2x2 that projects her onto the screen, as
+  // (m00, m01, m10, m11). The shader maps a screen point back through this to
+  // find the point on her own surface, which is what lets a flat shape
+  // foreshorten as it turns edge-on.
+  QVector4D bodyTransform() const { return m_transform; }
+
+  // Area the projection covers, 1.0 face-on. Used by the tests.
+  qreal projectedArea() const { return m_projectedArea; }
   qreal bobX() const { return m_bobX; }
   qreal bobY() const { return m_bobY; }
   qreal eyeLeftX() const { return m_left.position.x(); }
@@ -199,6 +212,7 @@ private:
   void advanceMorph(qreal dt);
   void settle(qreal &value, qreal target, qreal dt, qreal rate) const;
   void placeEyes();
+  void buildTransform();
   qreal random(qreal lo, qreal hi);
 
   Mood m_mood = Resting;
@@ -218,7 +232,14 @@ private:
   qreal m_roll = 0.0, m_rollTarget = 0.0;
   // Kept apart from m_roll: the roll settles towards a target, and a spin
   // folded into it would simply be pulled back out again every frame.
-  qreal m_tumble = 0.0;
+  // Tumble state: an in-plane spin, a tilt away from face-on, and the
+  // direction that tilt leans in. The third is what separates a tumble from a
+  // squash: hold it fixed and she just looks compressed.
+  qreal m_spin = 0.0, m_tilt = 0.0, m_tiltPhase = 0.0, m_tiltAxis = 0.0;
+  // She unfolds back to a circle before the rings fade, not with them.
+  bool m_thinkUnfolded = false;
+  QVector4D m_transform{1, 0, 0, 1};
+  qreal m_projectedArea = 1.0;
   qreal m_bobX = 0.0, m_bobY = 0.0;
 
   // Where an eye ended up on screen, and how much the sphere's curvature

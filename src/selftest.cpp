@@ -220,7 +220,16 @@ int captureFilm(QApplication &app, Mascot &mascot, Orbits &orbits,
   mascot.changeForm(Mascot::Circle, Mascot::kSettleBack);
   run(0.9);
 
-  QTextStream(stdout) << "captured " << frame << " frames\n";
+  // Then a stretch of thinking, so the tumble can be checked against the
+  // reference's own silhouette rather than only against its numbers.
+  const int dotsFrames = frame;
+  mascot.rest();
+  mascot.think(6.0);
+  run(3.0);
+
+  QTextStream(stdout) << "captured " << frame << " frames ("
+                      << dotsFrames << " dots, " << frame - dotsFrames
+                      << " thinking)\n";
   app.exit(0);
   return 0;
 }
@@ -609,15 +618,46 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     mascot.tick(1.0 / 60.0);
     ++ringsUp;
   }
-  const qreal tumbleStart = mascot.roll();
-  for (int i = 0; i < 120; ++i)
+  const qreal tumbleStart = mascot.tumble();
+  qreal areaMin = 2.0, areaMax = 0.0;
+  for (int i = 0; i < 240; ++i) { // 4 s, more than one full turn
     mascot.tick(1.0 / 60.0);
-  const qreal tumbled = (mascot.roll() - tumbleStart) / 2.0;
+    areaMin = std::min(areaMin, mascot.projectedArea());
+    areaMax = std::max(areaMax, mascot.projectedArea());
+  }
+  const qreal tumbled = (mascot.tumble() - tumbleStart) / 4.0;
+  const qreal swing = (areaMax - areaMin) / ((areaMax + areaMin) / 2.0);
   out << "   rings up in " << int(ringsUp / 60.0 * 1000)
-      << " ms (reference 117), tumble " << tumbled << " rad/s (reference 1.015)"
-      << "\n";
+      << " ms (reference 117), tumble " << tumbled << " rad/s (reference 1.46)"
+      << "\n   projected area " << areaMin << " to " << areaMax << ", swing "
+      << qRound(swing * 100) << "% (reference 42%)\n";
   check(ringsUp / 60.0 < 0.22, "the rings come up quickly");
-  check(tumbled > 0.7 && tumbled < 1.3, "she tumbles at the reference's rate");
+  // 1.46 rad/s of apparent spin, measured over the stretch where she is a
+  // triangle throughout. An earlier figure of 1.015 came from a window that
+  // also spanned her morph back to a circle, which drags the estimate down.
+  check(tumbled > 1.1 && tumbled < 1.8, "she tumbles at the reference's rate");
+
+  // The tumble is in three dimensions, not a flat spin. A flat spin keeps the
+  // projected area at exactly 1; the reference's silhouette loses half its
+  // area as she turns edge-on.
+  check(areaMin < 0.75, "she foreshortens as she turns, rather than spinning flat");
+  check(areaMax > 0.95, "and comes back to face-on");
+  check(swing > 0.30 && swing < 0.60,
+        "and foreshortens by about as much as the reference does");
+
+  // She unfolds back to a circle while the rings are still up, not with them.
+  {
+    mascot.rest();
+    mascot.think(2.0);
+    bool circleWhileRingsUp = false;
+    for (int i = 0; i < 170; ++i) {
+      mascot.tick(1.0 / 60.0);
+      if (mascot.formB() == Mascot::Circle && mascot.rings() > 0.85)
+        circleWhileRingsUp = true;
+    }
+    check(circleWhileRingsUp,
+          "she unfolds before the rings fade, rather than with them");
+  }
 
   mascot.rest();
   int ringsDown = 0;

@@ -52,8 +52,24 @@ constexpr qreal kAlertOverlean = -0.19;
 constexpr qreal kRingsRise = 13.8;
 constexpr qreal kRingsFall = 2.7;
 
-// Body tumble while thinking: +122 deg over 2.10 s.
-constexpr qreal kTumbleRate = 1.015; // rad/s
+// Body tumble while thinking. She does not spin flat: the reference's
+// silhouette loses half its area and swings its width/height ratio by 46% as
+// she turns, and its bounding box goes from 0.75 full down to 0.33. A flat
+// spin holds all three constant, so she is tumbling in three dimensions and
+// foreshortening as she comes edge-on.
+//
+// Modelled as a flat plate that spins in the screen plane while tilting away
+// from face-on. A plate tilted by `tilt` about an axis lying in the screen
+// plane compresses along the perpendicular to that axis by cos(tilt), so the
+// projected area is cos(tilt) and a tilt of 0.85 rad gives the measured swing.
+//
+// The tilt axis has to turn as well. Pinned to one direction she reads as
+// squashed rather than tumbling, which is exactly how the first attempt at
+// this looked.
+constexpr qreal kSpinRate = 1.46;  // rad/s, in-plane
+constexpr qreal kTiltMax = 0.85;   // rad away from face-on
+constexpr qreal kTiltRate = 2.60;  // rad/s, how fast the tilt breathes
+constexpr qreal kAxisRate = 0.90;  // rad/s, how fast the tilt direction turns
 
 // Base half-extents. The reference keeps a near-constant height/width ratio of
 // about 1.55 whatever direction she looks in.
@@ -84,6 +100,7 @@ Mascot::Mascot(QObject *parent)
   m_yaw = m_yawTarget = kRestYaw;
   m_pitch = m_pitchTarget = kRestPitch;
   placeEyes();
+  buildTransform();
   scheduleBlink();
 }
 
@@ -165,6 +182,32 @@ void Mascot::placeEyes() {
   };
   damp(m_left);
   damp(m_right);
+}
+
+// Project her onto the screen: tumble in 3D, then the in-plane lean, then
+// invert so the shader can map a screen point back to a point on her surface.
+void Mascot::buildTransform() {
+  // Foreshortening: compress along the perpendicular to the tilt axis by the
+  // cosine of the tilt. This is what an orthographic projection does to a
+  // tilted flat plate.
+  const qreal dx = -std::sin(m_tiltAxis), dy = std::cos(m_tiltAxis);
+  const qreal shrink = 1.0 - std::cos(m_tilt);
+  const qreal f00 = 1.0 - shrink * dx * dx, f01 = -shrink * dx * dy;
+  const qreal f10 = -shrink * dx * dy, f11 = 1.0 - shrink * dy * dy;
+
+  // Then the in-plane spin, with her settling lean riding along on it.
+  const qreal angle = m_spin + m_roll;
+  const qreal c = std::cos(angle), s = std::sin(angle);
+  const qreal r00 = c * f00 - s * f10, r01 = c * f01 - s * f11;
+  const qreal r10 = s * f00 + c * f10, r11 = s * f01 + c * f11;
+
+  qreal det = r00 * r11 - r01 * r10;
+  m_projectedArea = std::abs(det);
+  if (std::abs(det) < 0.12)
+    det = det < 0 ? -0.12 : 0.12;
+
+  m_transform = QVector4D(float(r11 / det), float(-r01 / det),
+                          float(-r10 / det), float(r00 / det));
 }
 
 void Mascot::setMood(Mood mood) {
@@ -427,6 +470,15 @@ void Mascot::tick(qreal dt) {
                      m_droplets.end());
   }
 
+  // She comes back to a circle while the rings are still going, rather than
+  // at the same moment they start to fade. The reference does the two in
+  // sequence, and doing them together reads as one abrupt change.
+  if (m_mood == Thinking && !m_thinkUnfolded && m_hold > 0.0 &&
+      m_hold < kSettleBack + 0.2) {
+    m_thinkUnfolded = true;
+    morphTo(Circle, kSettleBack);
+  }
+
   // Mood timers.
   if (m_hold > 0.0) {
     m_hold -= dt;
@@ -543,10 +595,17 @@ void Mascot::tick(qreal dt) {
   // Tumble while she is thinking. Measured over the reference's thinking
   // stretch: +122 degrees in 2.10 s. It accumulates in its own term, then
   // unwinds once she stops -- by which point she is a circle again anyway.
-  if (m_rings > 0.02 && !m_reduced)
-    m_tumble += dt * kTumbleRate * m_rings;
-  else
-    settle(m_tumble, 0.0, dt, 3.0);
+  if (m_rings > 0.02 && !m_reduced) {
+    m_spin += dt * kSpinRate * m_rings;
+    m_tiltPhase += dt * kTiltRate;
+    m_tiltAxis += dt * kAxisRate;
+    // Scaled by the rings so the tumble arrives and leaves with them.
+    m_tilt = kTiltMax * 0.5 * (1.0 - std::cos(m_tiltPhase)) * m_rings;
+  } else {
+    settle(m_spin, 0.0, dt, 3.0);
+    settle(m_tilt, 0.0, dt, 4.0);
+  }
+  buildTransform();
 
   emit frame();
 }
@@ -597,6 +656,7 @@ void Mascot::think(qreal seconds) {
   wake();
   setMood(Thinking);
   m_ringsTarget = 1.0;
+  m_thinkUnfolded = false;
   morphTo(Triangle, 0.26);
   m_eyeWidthTarget = kEyeWidth;
   m_eyeHeightTarget = kEyeHeight;
@@ -730,7 +790,8 @@ void Mascot::rest() {
   m_scale = m_scaleTarget = 1.0;
   m_scaleVelocity = 0.0;
   m_roll = m_rollTarget = 0.0;
-  m_tumble = 0.0;
+  m_spin = m_tilt = m_tiltPhase = m_tiltAxis = 0.0;
+  buildTransform();
   m_bobX = m_bobY = 0.0;
   m_breathe = 0.0;
   // Lids too: without this a rest() taken mid-blink leaves an eye half shut,
