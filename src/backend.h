@@ -12,6 +12,7 @@ class QQuickWindow;
 class Mascot;
 class Theme;
 class Cursor;
+class Activity;
 
 // Preferences, placement and the glue between the mascot and the desktop.
 class Backend : public QObject {
@@ -22,6 +23,7 @@ class Backend : public QObject {
   Q_PROPERTY(QColor mascotColor READ mascotColor NOTIFY changed)
   Q_PROPERTY(bool followCursor READ followCursor NOTIFY changed)
   Q_PROPERTY(bool idleAntics READ idleAntics NOTIFY changed)
+  Q_PROPERTY(bool reactToDesktop READ reactToDesktop NOTIFY changed)
   Q_PROPERTY(bool sleepWhenIdle READ sleepWhenIdle NOTIFY changed)
   Q_PROPERTY(bool reducedMotion READ reducedMotion NOTIFY changed)
   Q_PROPERTY(bool stayOnTop READ stayOnTop NOTIFY changed)
@@ -33,13 +35,15 @@ class Backend : public QObject {
 
 public:
   Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
-          Theme *theme, Cursor *cursor, QObject *parent = nullptr);
+          Theme *theme, Cursor *cursor, Activity *activity,
+          QObject *parent = nullptr);
 
   qreal size() const { return m_size; }
   QString colorMode() const { return m_colorMode; }
   QColor mascotColor() const;
   bool followCursor() const { return m_followCursor; }
   bool idleAntics() const { return m_idleAntics; }
+  bool reactToDesktop() const { return m_reactToDesktop; }
   bool sleepWhenIdle() const { return m_sleepWhenIdle; }
   bool reducedMotion() const { return m_reducedMotion; }
   bool stayOnTop() const { return m_stayOnTop; }
@@ -108,6 +112,8 @@ private:
   Mascot *m_mascot = nullptr;
   Theme *m_theme = nullptr;
   Cursor *m_cursor = nullptr;
+  Activity *m_activity = nullptr;
+  qreal m_sinceBusyThought = 0.0;
   QQuickWindow *m_window = nullptr;
   bool m_layered = false;
 
@@ -115,6 +121,7 @@ private:
   QString m_colorMode = QStringLiteral("ink");
   bool m_followCursor = true;
   bool m_idleAntics = true;
+  bool m_reactToDesktop = true;
   bool m_sleepWhenIdle = true;
   bool m_reducedMotion = false;
   bool m_stayOnTop = true;

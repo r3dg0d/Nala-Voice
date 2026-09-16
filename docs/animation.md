@@ -238,6 +238,12 @@ faster cadence, which keeps the bag short enough to run all the way through
 before she naps. Measured over ten runs the full repertoire shows within 39 to
 66 seconds, against a sleep threshold of 110.
 
+**The triangle means one thing.** A poke used to morph her into a triangle as
+its happy reaction, and thinking morphs her into a triangle with orbit arcs
+around it. So every click produced a ringless triangle, which reads exactly
+like the arcs failing to render. A poke is now a squash and a widening of the
+eyes with no change of shape, and the triangle belongs to thinking alone.
+
 Two smaller things fall out of the same idea:
 
 - **She does not look away from a moving cursor.** A glance is skipped while
@@ -246,6 +252,21 @@ Two smaller things fall out of the same idea:
 - **Reduced motion reduces rather than eliminates.** It used to disable antics
   outright, so the setting turned her off rather than calming her down. She
   still looks about and winks; the morphs, the tumble and the scatter stop.
+
+## Reacting to the machine
+
+Left to a timer she is a slideshow. Two hooks give the behaviours something to
+mean, both behind a single `React to your desktop` switch:
+
+- **Thinking follows the load average.** Over 0.75 per core she is busy, under
+  0.45 she is not; the gap is hysteresis, so a load hovering on the line does
+  not flicker her. While busy she thinks on a cadence rather than being held
+  in it, so a long build gets the occasional glance rather than a mascot stuck
+  in a permanent spin.
+- **The badge follows real notifications.** Noctalia is the notification
+  daemon on the desktop this is built for and keeps a history file whose
+  entries carry an ever-climbing serial, so a jump in the highest serial is a
+  new notification. Without that file she simply never reports one.
 
 ## Timing
 

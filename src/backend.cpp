@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "activity.h"
 #include "cursor.h"
 #include "mascot.h"
 #include "theme.h"
@@ -46,9 +47,11 @@ QString autostartPath() {
 } // namespace
 
 Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
-                 Theme *theme, Cursor *cursor, QObject *parent)
+                 Theme *theme, Cursor *cursor, Activity *activity,
+                 QObject *parent)
     : QObject(parent), m_configPath(std::move(configPath)), m_preview(preview),
-      m_testing(testing), m_mascot(mascot), m_theme(theme), m_cursor(cursor) {
+      m_testing(testing), m_mascot(mascot), m_theme(theme), m_cursor(cursor),
+      m_activity(activity) {
   m_saveTimer.setSingleShot(true);
   m_saveTimer.setInterval(400); // coalesce slider drags into one write
   connect(&m_saveTimer, &QTimer::timeout, this, &Backend::save);
@@ -69,6 +72,14 @@ Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
       const QPointF centre = centreOnScreen();
       m_mascot->lookAt((position.x() - centre.x()) / radius,
                        (position.y() - centre.y()) / radius);
+    });
+  }
+
+  if (m_activity && m_mascot) {
+    // A notification is what the badge has always been for.
+    connect(m_activity, &Activity::notified, this, [this] {
+      if (m_reactToDesktop)
+        m_mascot->notify();
     });
   }
 
@@ -97,6 +108,7 @@ void Backend::load() {
   m_idleAntics = json.value("idleAntics").toBool(m_idleAntics);
   m_sleepWhenIdle = json.value("sleepWhenIdle").toBool(m_sleepWhenIdle);
   m_reducedMotion = json.value("reducedMotion").toBool(m_reducedMotion);
+  m_reactToDesktop = json.value("reactToDesktop").toBool(m_reactToDesktop);
   m_stayOnTop = json.value("stayOnTop").toBool(m_stayOnTop);
   m_monitor = json.value("monitor").toString(m_monitor);
   m_place = QPointF(
@@ -116,6 +128,7 @@ void Backend::save() {
       {"idleAntics", m_idleAntics},
       {"sleepWhenIdle", m_sleepWhenIdle},
       {"reducedMotion", m_reducedMotion},
+      {"reactToDesktop", m_reactToDesktop},
       {"stayOnTop", m_stayOnTop},
       {"monitor", m_monitor},
       {"x", m_place.x()},
@@ -145,6 +158,8 @@ void Backend::applyToMascot() {
   m_mascot->setIdleAntics(m_idleAntics);
   if (m_cursor)
     m_cursor->setActive(m_followCursor && !m_testing);
+  if (m_activity)
+    m_activity->setActive(m_reactToDesktop && !m_testing);
   if (!m_followCursor)
     m_mascot->lookIdle();
 }
@@ -168,6 +183,8 @@ void Backend::configure(const QString &key, const QVariant &value) {
     m_sleepWhenIdle = value.toBool();
   } else if (key == "reducedMotion") {
     m_reducedMotion = value.toBool();
+  } else if (key == "reactToDesktop") {
+    m_reactToDesktop = value.toBool();
   } else if (key == "stayOnTop") {
     m_stayOnTop = value.toBool();
   } else if (key == "monitor") {
@@ -457,6 +474,27 @@ void Backend::advance(qreal dt) {
     }
     if (m_demoStep >= count)
       m_demoStep = -1;
+  }
+
+  // She notices the machine working. Re-triggered on a cadence rather than
+  // held, so a long build gets an occasional glance rather than a mascot
+  // stuck in a permanent spin.
+  if (m_reactToDesktop && m_activity && m_mascot) {
+    m_sinceBusyThought += dt;
+    if (m_activity->busy() && m_mascot->mood() == Mascot::Resting &&
+        m_sinceBusyThought > 14.0) {
+      m_sinceBusyThought = 0.0;
+      m_mascot->think(3.4);
+    }
+  }
+
+  // Asleep, she stirs when the cursor comes near rather than needing a poke.
+  if (m_mascot && m_mascot->sleeping() && m_cursor && m_cursor->available()) {
+    const qreal radius = bodyRadius();
+    const QPointF centre = centreOnScreen();
+    const QPointF to = QPointF(m_cursor->position()) - centre;
+    if (radius > 0.0 && std::hypot(to.x(), to.y()) < radius * 3.0)
+      m_mascot->wake();
   }
 
   if (!m_flying || !m_window)

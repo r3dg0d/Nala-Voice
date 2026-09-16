@@ -90,6 +90,8 @@ constexpr qreal kBlinkHold = 0.75;  // ... and fully shut, up to this point
 // she could drift off with a behaviour still undealt, which is half of why
 // the orbit rings went unseen.
 constexpr qreal kSleepAfter = 110.0;
+// She starts to flag well before she actually goes under.
+constexpr qreal kDrowsyAfter = 55.0;
 
 qreal easeInOut(qreal t) {
   t = qBound(0.0, t, 1.0);
@@ -384,7 +386,7 @@ void Mascot::advanceIdle(qreal dt) {
   // reduced motion.
   m_glance -= dt;
   if (m_glance <= 0.0) {
-    m_glance = random(3.5, 7.0);
+    m_glance = random(3.5, 7.0) * (1.0 + 1.2 * m_drowsy);
     // Never look away from a cursor that is still moving: she follows it while
     // you are using the mouse and amuses herself once you stop, rather than
     // the two fighting over where she is looking.
@@ -404,7 +406,8 @@ void Mascot::advanceIdle(qreal dt) {
   m_antic -= dt;
   if (m_antic > 0.0)
     return;
-  m_antic = random(6.0, 11.0);
+  // Flourishes thin out as she flags.
+  m_antic = random(6.0, 11.0) * (1.0 + 1.6 * m_drowsy);
 
   int antic = drawAntic();
   if (m_reduced) {
@@ -549,6 +552,13 @@ void Mascot::tick(qreal dt) {
     }
   }
 
+  // How far gone she is, which lowers her lids and thins out her flourishes
+  // rather than letting sleep arrive out of nowhere.
+  m_drowsy = (m_mood == Resting && m_sleepWhenIdle)
+                 ? qBound(0.0, (m_idle - kDrowsyAfter) /
+                                   (kSleepAfter - kDrowsyAfter), 1.0)
+                 : 0.0;
+
   // Drift off after a long stretch of being left alone.
   if (m_sleepWhenIdle && m_mood == Resting && m_idle > kSleepAfter) {
     setMood(Asleep);
@@ -603,7 +613,8 @@ void Mascot::tick(qreal dt) {
   settle(m_eyeWidth, m_eyeWidthTarget, dt, 13.0);
   settle(m_eyeRound, m_eyeRoundTarget, dt, 10.0);
 
-  settle(m_eyeHeight, m_eyeHeightTarget, dt, 13.0);
+  // Her lids lower as she flags, so sleep does not arrive out of nowhere.
+  settle(m_eyeHeight, m_eyeHeightTarget * (1.0 - 0.5 * m_drowsy), dt, 13.0);
 
   // Lids. A blink shuts both; a wink shuts one and holds it. They are applied
   // per eye rather than to the shared height so the two can differ.
@@ -690,7 +701,6 @@ void Mascot::poke() {
   m_eyeWidthTarget = 0.20;
   m_eyeHeightTarget = 0.225;
   m_eyeRoundTarget = 1.0;
-  morphTo(Triangle, 0.20);
   m_hold = 0.85;
 
   QMetaObject::invokeMethod(
@@ -845,6 +855,7 @@ void Mascot::rest() {
   buildTransform();
   m_bobX = m_bobY = 0.0;
   m_breathe = 0.0;
+  m_drowsy = 0.0;
   // Lids too: without this a rest() taken mid-blink leaves an eye half shut,
   // and anything that measures from here starts off a wrong baseline.
   m_blinkPhase = -1.0;

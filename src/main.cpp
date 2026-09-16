@@ -1,3 +1,4 @@
+#include "activity.h"
 #include "backend.h"
 #include "cursor.h"
 #include "mascot.h"
@@ -165,7 +166,9 @@ int main(int argc, char **argv) {
   Mascot mascot;
   Orbits orbits;
   Cursor cursor;
-  Backend backend(configPath, preview, testing, &mascot, &theme, &cursor);
+  Activity activity(themeState);
+  Backend backend(configPath, preview, testing, &mascot, &theme, &cursor,
+                  &activity);
 
   qmlRegisterType<OrbitLayer>("Nala", 1, 0, "OrbitLayer");
   qmlRegisterType<Trail>("Nala", 1, 0, "Trail");
@@ -284,8 +287,8 @@ int main(int argc, char **argv) {
   }
 
   if (testing)
-    return runSelfTest(app, backend, mascot, orbits, theme, window, warnings,
-                       parser.value("capture-dir"));
+    return runSelfTest(app, backend, mascot, orbits, theme, activity, window,
+                       warnings, parser.value("capture-dir"));
 
   return app.exec();
 }

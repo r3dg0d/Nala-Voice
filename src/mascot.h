@@ -54,6 +54,7 @@ class Mascot : public QObject {
   Q_PROPERTY(qreal dashIntensity READ dashIntensity NOTIFY frame)
   Q_PROPERTY(qreal time READ time NOTIFY frame)
   Q_PROPERTY(int mood READ mood NOTIFY moodChanged)
+  Q_PROPERTY(qreal drowsiness READ drowsiness NOTIFY frame)
   Q_PROPERTY(bool sleeping READ sleeping NOTIFY moodChanged)
   Q_PROPERTY(bool dragging READ dragging NOTIFY moodChanged)
 
@@ -160,6 +161,10 @@ public:
   QVariantList droplets() const;
   qreal time() const { return m_time; }
   int mood() const { return m_mood; }
+  // 0 wide awake, 1 about to nod off. Sleep is a slope rather than a cliff:
+  // her lids lower and her flourishes thin out on the way down, so you can
+  // see it coming.
+  qreal drowsiness() const { return m_drowsy; }
   bool sleeping() const { return m_mood == Asleep; }
   bool dragging() const { return m_mood == Held; }
 
@@ -301,6 +306,7 @@ private:
   qreal m_glance = 4.0;    // seconds until the next small movement
   QVector<int> m_anticBag; // shuffled, dealt one at a time, refilled when empty
   qreal m_breathe = 0.0;  // -1..1, the slow idle swell
+  qreal m_drowsy = 0.0;   // 0..1, how close she is to nodding off
   qreal m_cooldown = 0.0; // rate-limit on reactions
 
   bool m_reduced = false;

@@ -1,4 +1,5 @@
 #include "selftest.h"
+#include "activity.h"
 #include "backend.h"
 #include "mascot.h"
 #include "orbits.h"
@@ -235,8 +236,9 @@ int captureFilm(QApplication &app, Mascot &mascot, Orbits &orbits,
 }
 
 int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
-                Orbits &orbits, Theme &theme, QQuickWindow *window,
-                const QStringList &warnings, const QString &captureDir) {
+                Orbits &orbits, Theme &theme, Activity &activity,
+                QQuickWindow *window, const QStringList &warnings,
+                const QString &captureDir) {
   int failures = 0;
   QTextStream out(stdout);
 
@@ -388,12 +390,17 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     check(sawThink && sawAlert && sawBadge && sawScatter,
           "and every one of the showpieces");
 
-    // Leave nothing running behind it.
-    for (int i = 0; i < 400; ++i) {
+    // Leave nothing running behind it. The demo ends on a dash, which takes
+    // a while to come to rest, so wait it out rather than assuming.
+    for (int i = 0; i < 60 * 20 &&
+                    (backend.flying() || mascot.mood() != Mascot::Resting ||
+                     !mascot.droplets().isEmpty());
+         ++i) {
       backend.advance(1.0 / 60.0);
       mascot.tick(1.0 / 60.0);
     }
-    check(!backend.flying() && mascot.droplets().isEmpty(),
+    check(!backend.flying() && mascot.droplets().isEmpty() &&
+              mascot.mood() == Mascot::Resting,
           "and leaves her settled afterwards");
     backend.resetPlace();
   }
@@ -452,6 +459,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   // The eyes are carried on a sphere, so the reference shows three things a
   // flat translation cannot produce. All three were measured off the video.
   {
+    mascot.setIdleAntics(false); // a glance would move the eyes underneath us
     const auto settleGaze = [&] {
       for (int i = 0; i < 40; ++i)
         mascot.tick(0.05);
@@ -484,6 +492,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     settleGaze();
     check(qAbs(mascot.eyeRightY() - mascot.eyeLeftY()) < 0.02,
           "the pair is level when looking straight ahead");
+    mascot.setIdleAntics(true);
   }
 
   mascot.lookIdle();
@@ -647,11 +656,21 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   }
 
   // --- reactions -----------------------------------------------------------
+  // Held still throughout: these check what a specific interaction does, and
+  // a spontaneous flourish landing in the middle would answer for it.
+  mascot.setIdleAntics(false);
   mascot.poke();
   mascot.tick(0.05);
   check(mascot.mood() == Mascot::Happy, "a click makes her happy");
   check(mascot.squashX() > 1.0 && mascot.squashY() < 1.0,
         "a click squashes her on impact");
+  // The triangle is the thinking shape and nothing else. A poke that also
+  // produced one made every click look like the orbit rings had failed.
+  for (int i = 0; i < 60; ++i)
+    mascot.tick(1.0 / 60.0);
+  check(mascot.formB() != Mascot::Triangle,
+        "a click does not make the thinking shape");
+  check(mascot.rings() < 0.05, "and brings up no rings");
 
   // The rings come up fast and fade slowly: 117 ms against 683 ms.
   mascot.rest();
@@ -855,6 +874,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     mascot.setSleepWhenIdle(true);
     for (int i = 0; i < 1500; ++i) // comfortably past the sleep threshold
       mascot.tick(0.1);
+    check(mascot.sleeping(), "she is asleep before the swell is measured");
     mascot.wake();
     int rise = 0;
     while (mascot.bodyScale() < 0.98 && rise < 300) {
@@ -922,6 +942,89 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     mascot.setReducedMotion(false);
     mascot.setSleepWhenIdle(true);
   }
+
+  // --- reacting to the desktop ---------------------------------------------
+  //
+  // A timer alone makes her a slideshow. These give the thinking and the badge
+  // something to actually mean.
+  {
+    backend.configure("reactToDesktop", true);
+    mascot.rest();
+    mascot.setIdleAntics(false);
+    mascot.setSleepWhenIdle(false);
+
+    activity.injectLoad(1.4); // the machine gets busy
+    check(activity.busy(), "she notices the machine working");
+    bool thought = false;
+    for (int i = 0; i < 60 * 20 && !thought; ++i) {
+      backend.advance(1.0 / 60.0);
+      mascot.tick(1.0 / 60.0);
+      if (mascot.rings() > 0.5)
+        thought = true;
+    }
+    check(thought, "and thinks while it does");
+
+    activity.injectLoad(0.2); // and settles down again
+    check(!activity.busy(), "she notices it going quiet");
+
+    // Hysteresis: a load hovering near the line must not flicker her.
+    activity.injectLoad(0.6);
+    check(!activity.busy(), "a middling load does not set her off");
+
+    // A notification is what the badge has always been for.
+    mascot.rest();
+    for (int i = 0; i < 40; ++i)
+      mascot.tick(1.0 / 60.0);
+    activity.injectNotification();
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(mascot.badge() > 0.5, "a notification brings up the badge");
+
+    // And the switch really switches it off.
+    backend.configure("reactToDesktop", false);
+    mascot.rest();
+    activity.injectNotification();
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(mascot.badge() < 0.1, "unless she has been told not to");
+    backend.configure("reactToDesktop", true);
+    mascot.setIdleAntics(true);
+    mascot.setSleepWhenIdle(true);
+  }
+
+  // --- nodding off ---------------------------------------------------------
+  //
+  // Sleep used to arrive out of nowhere. She now flags first, which you can
+  // see in her lids.
+  {
+    mascot.rest();
+    mascot.setSleepWhenIdle(true);
+    mascot.setIdleAntics(false);
+    const qreal awake = mascot.eyeLeftHeight();
+    check(mascot.drowsiness() < 0.01, "she starts out wide awake");
+
+    for (int i = 0; i < 900; ++i) // 90 s, well into flagging
+      mascot.tick(0.1);
+    const qreal flagging = mascot.drowsiness();
+    check(flagging > 0.1 && flagging < 0.9, "she flags before she sleeps");
+    check(!mascot.sleeping(), "without being asleep yet");
+    // Sample over a second and take the widest her eye gets, so a blink
+    // cannot pass for a droop.
+    qreal widest = 0.0;
+    for (int i = 0; i < 60; ++i) {
+      mascot.tick(1.0 / 60.0);
+      widest = std::max(widest, mascot.eyeLeftHeight());
+    }
+    check(widest < awake * 0.85, "and her lids lower");
+
+    for (int i = 0; i < 600; ++i)
+      mascot.tick(0.1);
+    check(mascot.sleeping(), "then she goes under");
+    mascot.wake();
+    mascot.setIdleAntics(true);
+  }
+
+  mascot.setIdleAntics(true);
 
   // --- sleep ---------------------------------------------------------------
   mascot.setSleepWhenIdle(true);

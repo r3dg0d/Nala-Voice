@@ -199,6 +199,13 @@ Window {
             }
 
             NalaSwitch {
+                objectName: "desktopToggle"
+                text: "React to your desktop"
+                checked: backend.reactToDesktop
+                onToggled: backend.configure("reactToDesktop", checked)
+            }
+
+            NalaSwitch {
                 objectName: "anticsToggle"
                 text: "Idle antics"
                 checked: backend.idleAntics

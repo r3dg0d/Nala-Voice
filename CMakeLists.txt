@@ -11,6 +11,7 @@ find_package(LayerShellQt 6.7 QUIET CONFIG)
 
 qt_add_executable(nala
   src/main.cpp
+  src/activity.cpp src/activity.h
   src/backend.cpp src/backend.h
   src/cursor.cpp src/cursor.h
   src/mascot.cpp src/mascot.h

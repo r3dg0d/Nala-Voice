@@ -62,6 +62,10 @@ Tray icon, right-click, or `nala settings`. Size, colour (ink or wallpaper),
 which display, cursor-following, idle antics, sleep, layer, reduced motion and
 start-at-login. Stored at `~/.config/nala/preferences.json`.
 
+**React to your desktop** lets her respond to the machine rather than a timer:
+she thinks while the load average says it is working, and shows the
+notification badge when one actually arrives.
+
 **Idle antics** are dealt from a shuffled bag, so every behaviour turns up once
 per cycle rather than depending on luck. Small movements run on their own
 faster cadence, and she will not look away from a cursor that is still moving.
