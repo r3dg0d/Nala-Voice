@@ -12,6 +12,7 @@
 #include <QQuickWindow>
 #include <QRandomGenerator>
 #include <iterator>
+#include "mascot.h"
 #include <QRegion>
 #include <QSaveFile>
 #include <QScreen>
@@ -411,7 +412,53 @@ void Backend::launch(qreal dx, qreal dy, qreal speed) {
                         qBound(0.0, speed / (kThrowSpeed * 4.0), 1.0));
 }
 
+namespace {
+
+// The demo reel: what she does, and how far into the run it happens.
+struct DemoStep {
+  qreal at;
+  const char *what;
+};
+constexpr DemoStep kDemo[] = {
+    {0.0, "wink"},   {2.6, "egg"},    {4.6, "hex"},    {6.6, "circle"},
+    {7.6, "poke"},   {9.4, "think"},  {15.0, "alert"}, {17.8, "notify"},
+    {21.8, "scatter"}, {24.4, "dash"}, {28.5, "rest"},
+};
+
+} // namespace
+
+void Backend::demo() {
+  if (!m_mascot)
+    return;
+  m_mascot->rest();
+  m_demoStep = 0;
+  m_demoClock = 0.0;
+}
+
 void Backend::advance(qreal dt) {
+  // Demo playback. Driven from the same frame callback as everything else, so
+  // it cannot drift out of step with her animation.
+  if (m_demoStep >= 0 && m_mascot) {
+    m_demoClock += dt;
+    const int count = int(std::size(kDemo));
+    while (m_demoStep < count && m_demoClock >= kDemo[m_demoStep].at) {
+      const QString what = QString::fromLatin1(kDemo[m_demoStep].what);
+      ++m_demoStep;
+      if (what == "egg")
+        m_mascot->changeForm(Mascot::Egg);
+      else if (what == "hex")
+        m_mascot->changeForm(Mascot::Hex);
+      else if (what == "circle")
+        m_mascot->changeForm(Mascot::Circle, Mascot::kSettleBack);
+      else if (what == "dash")
+        command("dash");
+      else
+        command(what);
+    }
+    if (m_demoStep >= count)
+      m_demoStep = -1;
+  }
+
   if (!m_flying || !m_window)
     return;
 
@@ -485,6 +532,8 @@ void Backend::command(const QString &name) {
     m_mascot->wink();
   else if (name == "scatter")
     m_mascot->scatter();
+  else if (name == "demo")
+    demo();
   else if (name == "dash") {
     // Off in some direction of her own choosing.
     const qreal angle = QRandomGenerator::global()->generateDouble() * 2 * M_PI;

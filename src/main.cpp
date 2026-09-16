@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
   parser.addPositionalArgument(
       "command",
       "run (default), settings, status, poke, wink, think, alert, notify, "
-      "scatter, dash, rest, reset, quit");
+      "scatter, dash, demo, rest, reset, quit");
   parser.process(app);
 
   // Both capture modes drive the animation clock themselves, so they share the
@@ -244,6 +244,7 @@ int main(int argc, char **argv) {
   menu.addAction("Say hello", &mascot, [&mascot] { mascot.poke(); });
   menu.addAction("Off you go", &backend,
                  [&backend] { backend.command("dash"); });
+  menu.addAction("Show me everything", &backend, &Backend::demo);
   menu.addAction("Reset position", &backend, &Backend::resetPlace);
   menu.addSeparator();
   menu.addAction("Quit Nala", &app, &QApplication::quit);

@@ -75,6 +75,14 @@ public:
               Dashing };
   Q_ENUM(Mood)
 
+  // The things worth watching. Dealt from a shuffled bag rather than picked
+  // independently, so every one turns up once per cycle instead of depending
+  // on luck. Small filler movements are not in here: they run on their own,
+  // faster cadence, which keeps the bag short enough to get all the way
+  // through before she drifts off.
+  enum Antic { BecomeEgg, BecomeHex, Ponder, Winking, ComeApart, AnticCount };
+  Q_ENUM(Antic)
+
   // She never holds perfectly still. Measured from the reference: the body's
   // height/width ratio swells by about 1.2% at 0.31 Hz, and the whole shape
   // drifts vertically at that same frequency -- the two are coupled, which is
@@ -209,6 +217,8 @@ private:
   void advanceBlink(qreal dt);
   qreal lidFor(qreal phase) const;
   void advanceIdle(qreal dt);
+  int drawAntic();
+  void performAntic(int antic);
   void advanceMorph(qreal dt);
   void settle(qreal &value, qreal target, qreal dt, qreal rate) const;
   void placeEyes();
@@ -287,7 +297,9 @@ private:
   qreal m_time = 0.0;
   qreal m_hold = 0.0;     // seconds left in the current mood
   qreal m_idle = 0.0;     // seconds since the last interaction
-  qreal m_antic = 7.0;    // seconds until the next spontaneous flourish
+  qreal m_antic = 7.0;     // seconds until the next flourish worth watching
+  qreal m_glance = 4.0;    // seconds until the next small movement
+  QVector<int> m_anticBag; // shuffled, dealt one at a time, refilled when empty
   qreal m_breathe = 0.0;  // -1..1, the slow idle swell
   qreal m_cooldown = 0.0; // rate-limit on reactions
 
@@ -296,6 +308,7 @@ private:
   bool m_idleAntics = true;
   bool m_hovered = false;
   bool m_lookingAtCursor = false;
+  qreal m_sinceLook = 99.0; // seconds since the cursor last moved
 
   QRandomGenerator m_random;
 };

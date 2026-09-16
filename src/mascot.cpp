@@ -86,7 +86,10 @@ constexpr qreal kBlinkSeconds = 0.29;
 constexpr qreal kBlinkClose = 0.47; // fraction of the cycle spent closing
 constexpr qreal kBlinkHold = 0.75;  // ... and fully shut, up to this point
 
-constexpr qreal kSleepAfter = 75.0;
+// Long enough that a whole bag of antics plays out before she naps. At 75 s
+// she could drift off with a behaviour still undealt, which is half of why
+// the orbit rings went unseen.
+constexpr qreal kSleepAfter = 110.0;
 
 qreal easeInOut(qreal t) {
   t = qBound(0.0, t, 1.0);
@@ -326,47 +329,93 @@ void Mascot::advanceBlink(qreal dt) {
   }
 }
 
+// Deal the next antic from a shuffled bag. A bag guarantees each behaviour
+// appears once per cycle; independent random draws do not, which is how the
+// orbit rings managed to go unseen for an entire session.
+int Mascot::drawAntic() {
+  if (m_anticBag.isEmpty()) {
+    for (int i = 0; i < AnticCount; ++i)
+      m_anticBag.append(i);
+    // Fisher-Yates, and never open a bag with whatever closed the last one.
+    for (int i = m_anticBag.size() - 1; i > 0; --i)
+      std::swap(m_anticBag[i], m_anticBag[int(random(0.0, i + 1.0))]);
+  }
+  return m_anticBag.takeLast();
+}
+
+void Mascot::performAntic(int antic) {
+  switch (antic) {
+  case BecomeEgg:
+    morphTo(Egg, 0.26);
+    m_hold = 1.4;
+    break;
+  case BecomeHex:
+    morphTo(Hex, 0.26);
+    m_hold = 1.4;
+    break;
+  case Ponder:
+    think(3.2);
+    break;
+  case Winking:
+    wink();
+    break;
+  case ComeApart:
+    scatter();
+    break;
+  default:
+    break;
+  }
+}
+
 void Mascot::advanceIdle(qreal dt) {
-  if (!m_idleAntics || m_mood != Resting || m_reduced)
+  if (!m_idleAntics || m_mood != Resting)
     return;
 
-  m_antic -= dt;
-  if (m_antic > 0.0)
-    return;
-  m_antic = random(9.0, 18.0);
-
-  // Amusing herself is not the same as being interacted with: the gestures
-  // below run through the same entry points as a real interaction, so preserve
-  // the idle clock across them or she would never settle down to sleep.
+  // Amusing herself is not being interacted with: everything below runs
+  // through the same entry points as a real interaction, so preserve the idle
+  // clock across them or she would never settle down to sleep.
   const qreal idleBefore = m_idle;
   const auto keepIdleClock = qScopeGuard([this, idleBefore] {
     m_idle = idleBefore;
   });
 
-  // A small repertoire of things to do when left alone, weighted towards the
-  // quiet ones so she never feels busy.
-  const int pick = int(random(0.0, 12.0));
-  if (pick == 11) {
-    scatter();
-  } else if (pick == 10) {
-    wink();
-  } else if (pick < 3) {
-    m_yawTarget = random(-kMaxYaw * 0.75, kMaxYaw * 0.85);
-    m_pitchTarget = random(-kMaxPitch * 0.8, kMaxPitch * 0.55);
-    m_lookingAtCursor = false;
-  } else if (pick < 5) {
-    m_squashXTarget = 1.07;
-    m_squashYTarget = 0.93;
-    m_hold = 0.22;
-  } else if (pick < 7) {
-    morphTo(Egg, 0.26);
-    m_hold = 1.4;
-  } else if (pick < 9) {
-    morphTo(Hex, 0.26);
-    m_hold = 1.4;
-  } else {
-    think(2.4);
+  // Small movements, often. These are what stop her looking switched off
+  // between the larger flourishes, and they are quiet enough to keep under
+  // reduced motion.
+  m_glance -= dt;
+  if (m_glance <= 0.0) {
+    m_glance = random(3.5, 7.0);
+    // Never look away from a cursor that is still moving: she follows it while
+    // you are using the mouse and amuses herself once you stop, rather than
+    // the two fighting over where she is looking.
+    if (m_sinceLook > 2.0) {
+      m_yawTarget = random(-kMaxYaw * 0.75, kMaxYaw * 0.85);
+      m_pitchTarget = random(-kMaxPitch * 0.8, kMaxPitch * 0.55);
+      m_lookingAtCursor = false;
+    } else if (!m_reduced) {
+      m_squashXTarget = 1.07;
+      m_squashYTarget = 0.93;
+      m_hold = 0.22;
+    }
   }
+
+  // And the flourishes worth watching, paced so a whole bag runs through well
+  // inside the time she stays awake.
+  m_antic -= dt;
+  if (m_antic > 0.0)
+    return;
+  m_antic = random(6.0, 11.0);
+
+  int antic = drawAntic();
+  if (m_reduced) {
+    // Reduced motion reduces rather than eliminates. A wink is two small white
+    // shapes moving; a tumble or a scatter is not.
+    for (int tries = 0; tries < AnticCount && antic != Winking; ++tries)
+      antic = drawAntic();
+    if (antic != Winking)
+      return;
+  }
+  performAntic(antic);
 }
 
 QVariantList Mascot::droplets() const {
@@ -449,6 +498,7 @@ void Mascot::tick(qreal dt) {
   dt = qBound(0.0, dt, 0.1); // survive a stalled frame without a lurch
   m_time += dt;
   m_idle += dt;
+  m_sinceLook += dt;
   if (m_cooldown > 0.0)
     m_cooldown = std::max(0.0, m_cooldown - dt);
 
@@ -744,6 +794,7 @@ void Mascot::setHovered(bool hovered) {
 
 void Mascot::lookAt(qreal x, qreal y) {
   m_lookingAtCursor = true;
+  m_sinceLook = 0.0;
   // Turn the cursor's offset into an orientation. tanh keeps a cursor far off
   // to one side from pinning the gaze at the very limit of its travel.
   m_yawTarget = std::tanh(x * 0.45) * kMaxYaw;

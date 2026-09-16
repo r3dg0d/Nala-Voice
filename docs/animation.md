@@ -224,6 +224,29 @@ loose enough to include it swallows the arcs into the silhouette, balloons the
 bounding box, and reports a fill of 0.32 where the truth is 0.55. Mask on
 saturation as well as luminance.
 
+## Being seen
+
+Parity with the reference is no use if the behaviours never fire. Antics were
+originally picked independently at random: one of twelve, every 9 to 18
+seconds, and she fell asleep after 75 seconds. That is about five draws, so the
+orbit rings turned up in roughly four sessions in ten and never at all after
+the first minute and a quarter.
+
+They are now dealt from a shuffled bag, which guarantees each one appears once
+per cycle. Small filler movements were taken out of the bag and given their own
+faster cadence, which keeps the bag short enough to run all the way through
+before she naps. Measured over ten runs the full repertoire shows within 39 to
+66 seconds, against a sleep threshold of 110.
+
+Two smaller things fall out of the same idea:
+
+- **She does not look away from a moving cursor.** A glance is skipped while
+  the cursor is still moving, and retried a couple of seconds later. Otherwise
+  the two fight over where she is looking.
+- **Reduced motion reduces rather than eliminates.** It used to disable antics
+  outright, so the setting turned her off rather than calming her down. She
+  still looks about and winks; the morphs, the tumble and the scatter stop.
+
 ## Timing
 
 Measured over all 1845 frames: 34 blinks, and 25 stretches where the silhouette

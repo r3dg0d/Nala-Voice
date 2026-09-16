@@ -34,6 +34,7 @@ nala alert        # become an exclamation mark
 nala notify       # show the notification badge
 nala scatter      # come apart, then pull back together
 nala dash         # streak off across the desktop
+nala demo         # run through everything she does, once
 nala rest         # back to idle
 nala reset        # move her back to her default corner
 nala quit
@@ -50,6 +51,7 @@ nala quit
 | Right-click | Preferences |
 | Hover | She widens her eyes and looks at you |
 | Leave her alone | She amuses herself, then falls asleep |
+| Tray, "Show me everything" | Runs the whole repertoire without waiting |
 
 Clicks outside her silhouette pass straight through to whatever is underneath,
 so she never blocks the desktop.
@@ -59,6 +61,11 @@ so she never blocks the desktop.
 Tray icon, right-click, or `nala settings`. Size, colour (ink or wallpaper),
 which display, cursor-following, idle antics, sleep, layer, reduced motion and
 start-at-login. Stored at `~/.config/nala/preferences.json`.
+
+**Idle antics** are dealt from a shuffled bag, so every behaviour turns up once
+per cycle rather than depending on luck. Small movements run on their own
+faster cadence, and she will not look away from a cursor that is still moving.
+`Reduce motion` keeps the looking and the winking and drops the rest.
 
 **Colour** is `Ink` by default — the near-black of the reference. `Wallpaper`
 derives her colour from Noctalia's accent instead, lightening or deepening it

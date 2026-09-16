@@ -76,6 +76,11 @@ public:
   Q_INVOKABLE void launch(qreal dx, qreal dy, qreal speed);
   bool flying() const { return m_flying; }
 
+  // Run through everything she can do, once, in order. Handy for seeing the
+  // whole repertoire without waiting on her own timing.
+  Q_INVOKABLE void demo();
+  bool demoing() const { return m_demoStep >= 0; }
+
   // Test seams.
   void injectCursor(int x, int y);
   qreal windowSize() const;
@@ -128,4 +133,8 @@ private:
   // Flight, in fractions of the screen's travel per second.
   bool m_flying = false;
   QPointF m_flightVelocity;
+
+  // Demo playback.
+  int m_demoStep = -1;
+  qreal m_demoClock = 0.0;
 };

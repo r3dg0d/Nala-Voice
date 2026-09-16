@@ -360,6 +360,44 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     check(!backend.flying(), "a gentle release just puts her down");
   }
 
+  // --- demo ----------------------------------------------------------------
+  //
+  // One command that runs the whole repertoire, for when you would rather not
+  // wait on her own timing.
+  {
+    backend.resetPlace();
+    mascot.rest();
+    backend.demo();
+    check(backend.demoing(), "the demo starts");
+
+    bool sawWink = false, sawThink = false, sawAlert = false;
+    bool sawBadge = false, sawScatter = false, sawShape = false;
+    for (int i = 0; i < 60 * 32 && backend.demoing(); ++i) {
+      backend.advance(1.0 / 60.0);
+      mascot.tick(1.0 / 60.0);
+      if (mascot.winking()) sawWink = true;
+      if (mascot.rings() > 0.5) sawThink = true;
+      if (mascot.formB() == Mascot::Exclaim) sawAlert = true;
+      if (mascot.badge() > 0.5) sawBadge = true;
+      if (!mascot.droplets().isEmpty()) sawScatter = true;
+      if (mascot.formB() == Mascot::Egg || mascot.formB() == Mascot::Hex)
+        sawShape = true;
+    }
+    check(!backend.demoing(), "and finishes on its own");
+    check(sawWink && sawShape, "the demo shows the quiet things");
+    check(sawThink && sawAlert && sawBadge && sawScatter,
+          "and every one of the showpieces");
+
+    // Leave nothing running behind it.
+    for (int i = 0; i < 400; ++i) {
+      backend.advance(1.0 / 60.0);
+      mascot.tick(1.0 / 60.0);
+    }
+    check(!backend.flying() && mascot.droplets().isEmpty(),
+          "and leaves her settled afterwards");
+    backend.resetPlace();
+  }
+
   // --- gaze ----------------------------------------------------------------
   mascot.setReducedMotion(true);
   mascot.lookAt(3.0, 0.0);
@@ -452,6 +490,9 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   mascot.setReducedMotion(false);
 
   // --- morphing ------------------------------------------------------------
+  // Held still: these time a specific morph, and a spontaneous one would land
+  // on top of it.
+  mascot.setIdleAntics(false);
   // Transitions in the reference run 0.20 s on average and never exceed
   // 0.33 s, so nothing here should be slower than that.
   {
@@ -491,6 +532,8 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   for (int i = 0; i < 30; ++i)
     mascot.tick(0.04);
   check(mascot.formB() == Mascot::Circle, "the queued morph then runs");
+
+  mascot.setIdleAntics(true);
 
   // --- blink ---------------------------------------------------------------
   //
@@ -796,7 +839,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
         mascot.notify();
       else {
         mascot.setSleepWhenIdle(true);
-        for (int i = 0; i < 900; ++i)
+        for (int i = 0; i < 1500; ++i) // comfortably past the sleep threshold
           mascot.tick(0.1);
         mascot.wake();
       }
@@ -810,7 +853,7 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
 
     mascot.rest();
     mascot.setSleepWhenIdle(true);
-    for (int i = 0; i < 900; ++i)
+    for (int i = 0; i < 1500; ++i) // comfortably past the sleep threshold
       mascot.tick(0.1);
     mascot.wake();
     int rise = 0;
@@ -824,10 +867,66 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
           "she takes about as long as the reference to swell back");
   }
 
+  // --- what she does when left alone ---------------------------------------
+  //
+  // The point of dealing antics from a bag is that every one of them turns up.
+  // Drawn independently, the orbit rings were a 1-in-12 pick fired about five
+  // times before she fell asleep, so better than half of all sessions never
+  // showed them at all.
+  {
+    mascot.rest();
+    mascot.setIdleAntics(true);
+    mascot.setSleepWhenIdle(false); // measure the repertoire, not the nap
+    mascot.setReducedMotion(false);
+    mascot.lookIdle();
+
+    bool sawThink = false, sawWink = false, sawScatter = false;
+    bool sawEgg = false, sawHex = false;
+    int frames = 0;
+    const int limit = 60 * 100; // 100 s
+    for (; frames < limit; ++frames) {
+      mascot.tick(1.0 / 60.0);
+      if (mascot.rings() > 0.5) sawThink = true;
+      if (mascot.winking()) sawWink = true;
+      if (!mascot.droplets().isEmpty()) sawScatter = true;
+      if (mascot.formB() == Mascot::Egg) sawEgg = true;
+      if (mascot.formB() == Mascot::Hex) sawHex = true;
+      if (sawThink && sawWink && sawScatter && sawEgg && sawHex)
+        break;
+    }
+    out << "   full repertoire seen within " << frames / 60 << " s\n";
+    check(sawThink, "she thinks, rings and all, without being asked");
+    check(sawWink, "she winks");
+    check(sawScatter, "she comes apart");
+    check(sawEgg && sawHex, "she tries other shapes");
+    check(frames < limit, "and gets through the whole repertoire promptly");
+  }
+
+  // Reduced motion reduces rather than eliminates: she still looks about and
+  // winks, but does not morph, tumble or come apart.
+  {
+    mascot.rest();
+    mascot.setReducedMotion(true);
+    mascot.setSleepWhenIdle(false);
+    bool moved = false, morphed = false, scattered = false;
+    const qreal restX = mascot.eyeLeftX();
+    for (int i = 0; i < 60 * 90; ++i) {
+      mascot.tick(1.0 / 60.0);
+      if (qAbs(mascot.eyeLeftX() - restX) > 0.08) moved = true;
+      if (mascot.formB() != Mascot::Circle) morphed = true;
+      if (!mascot.droplets().isEmpty()) scattered = true;
+    }
+    check(moved, "reduced motion still lets her look about");
+    check(!morphed, "but she keeps her shape");
+    check(!scattered, "and does not come apart");
+    mascot.setReducedMotion(false);
+    mascot.setSleepWhenIdle(true);
+  }
+
   // --- sleep ---------------------------------------------------------------
   mascot.setSleepWhenIdle(true);
   mascot.lookIdle();
-  for (int i = 0; i < 900; ++i) // 90 s of being left alone, at the dt cap
+  for (int i = 0; i < 1500; ++i) // 150 s of neglect, at the dt cap
     mascot.tick(0.1);
   check(mascot.sleeping(), "she falls asleep when left alone");
   mascot.wake();
