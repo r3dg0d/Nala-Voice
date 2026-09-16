@@ -192,6 +192,9 @@ public:
   Q_INVOKABLE void lookAt(qreal x, qreal y);
   Q_INVOKABLE void lookIdle();
 
+  // Look about, as if something just caught her attention.
+  Q_INVOKABLE void glanceAbout();
+
   // Drive one frame. `dt` is seconds.
   Q_INVOKABLE void tick(qreal dt);
 

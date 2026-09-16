@@ -811,6 +811,15 @@ void Mascot::lookAt(qreal x, qreal y) {
   m_pitchTarget = std::tanh(y * 0.45) * kMaxPitch;
 }
 
+void Mascot::glanceAbout() {
+  if (m_mood != Resting)
+    return;
+  m_yawTarget = random(-kMaxYaw * 0.7, kMaxYaw * 0.8);
+  m_pitchTarget = random(-kMaxPitch * 0.7, kMaxPitch * 0.4);
+  m_lookingAtCursor = false;
+  m_glance = random(3.5, 6.0); // do not immediately look somewhere else
+}
+
 void Mascot::lookIdle() {
   m_lookingAtCursor = false;
   m_yawTarget = kRestYaw;

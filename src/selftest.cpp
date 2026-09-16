@@ -1,6 +1,7 @@
 #include "selftest.h"
 #include "activity.h"
 #include "backend.h"
+#include "compositor.h"
 #include "mascot.h"
 #include "orbits.h"
 #include "theme.h"
@@ -237,8 +238,8 @@ int captureFilm(QApplication &app, Mascot &mascot, Orbits &orbits,
 
 int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
                 Orbits &orbits, Theme &theme, Activity &activity,
-                QQuickWindow *window, const QStringList &warnings,
-                const QString &captureDir) {
+                Compositor &compositor, QQuickWindow *window,
+                const QStringList &warnings, const QString &captureDir) {
   int failures = 0;
   QTextStream out(stdout);
 
@@ -990,6 +991,63 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     backend.configure("reactToDesktop", true);
     mascot.setIdleAntics(true);
     mascot.setSleepWhenIdle(true);
+  }
+
+  // --- reacting to the compositor ------------------------------------------
+  //
+  // Events arrive as `name>>payload` lines. These are fed in exactly as
+  // Hyprland writes them.
+  {
+    backend.configure("reactToDesktop", true);
+    mascot.rest();
+    mascot.setIdleAntics(false);
+    mascot.setSleepWhenIdle(false);
+
+    check(!backend.outOfTheWay(), "she starts out in plain view");
+
+    compositor.injectEvent("fullscreen>>1");
+    check(compositor.fullscreen(), "she sees something go fullscreen");
+    check(backend.outOfTheWay(), "and steps aside for it");
+
+    compositor.injectEvent("fullscreen>>1"); // repeats must not thrash
+    check(backend.outOfTheWay(), "a repeated event changes nothing");
+
+    compositor.injectEvent("fullscreen>>0");
+    check(!compositor.fullscreen() && !backend.outOfTheWay(),
+          "and comes back when it ends");
+
+    // A workspace switch catches her eye.
+    mascot.lookIdle();
+    for (int i = 0; i < 40; ++i)
+      mascot.tick(1.0 / 60.0);
+    const qreal before = mascot.eyeLeftX();
+    compositor.injectEvent("workspace>>3");
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(qAbs(mascot.eyeLeftX() - before) > 0.04,
+          "a workspace switch catches her eye");
+
+    // So does a new window.
+    mascot.lookIdle();
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    const qreal settled = mascot.eyeLeftX();
+    compositor.injectEvent("openwindow>>0x1,1,foo,bar");
+    for (int i = 0; i < 60; ++i)
+      mascot.tick(1.0 / 60.0);
+    check(qAbs(mascot.eyeLeftX() - settled) > 0.04, "so does a new window");
+
+    // Nonsense must not upset her.
+    compositor.injectEvent("");
+    compositor.injectEvent("garbage without a separator");
+    compositor.injectEvent(">>");
+    check(!backend.outOfTheWay(), "malformed events are ignored");
+
+    // And the switch really switches it off.
+    backend.configure("reactToDesktop", false);
+    mascot.setIdleAntics(true);
+    mascot.setSleepWhenIdle(true);
+    backend.configure("reactToDesktop", true);
   }
 
   // --- nodding off ---------------------------------------------------------

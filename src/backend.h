@@ -13,6 +13,7 @@ class Mascot;
 class Theme;
 class Cursor;
 class Activity;
+class Compositor;
 
 // Preferences, placement and the glue between the mascot and the desktop.
 class Backend : public QObject {
@@ -31,12 +32,13 @@ class Backend : public QObject {
   Q_PROPERTY(QString monitor READ monitor NOTIFY changed)
   Q_PROPERTY(QStringList screens READ screens NOTIFY screensChanged)
   Q_PROPERTY(QString feedback READ feedback NOTIFY feedbackChanged)
+  Q_PROPERTY(bool outOfTheWay READ outOfTheWay NOTIFY outOfTheWayChanged)
   Q_PROPERTY(bool testing READ testing CONSTANT)
 
 public:
   Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
           Theme *theme, Cursor *cursor, Activity *activity,
-          QObject *parent = nullptr);
+          Compositor *compositor, QObject *parent = nullptr);
 
   qreal size() const { return m_size; }
   QString colorMode() const { return m_colorMode; }
@@ -51,6 +53,10 @@ public:
   QString monitor() const { return m_monitor; }
   QStringList screens() const;
   QString feedback() const { return m_feedback; }
+  // True while she has stepped aside, which is to say while something is
+  // fullscreen. QML fades her out rather than hiding the window, because a
+  // layer surface cannot be given its role back once it has been destroyed.
+  bool outOfTheWay() const { return m_outOfTheWay; }
   bool testing() const { return m_testing; }
 
   qreal nx() const { return m_place.x(); }
@@ -93,6 +99,7 @@ public:
 
 signals:
   void changed();
+  void outOfTheWayChanged();
   void screensChanged();
   void feedbackChanged();
   void settingsRequested();
@@ -113,6 +120,8 @@ private:
   Theme *m_theme = nullptr;
   Cursor *m_cursor = nullptr;
   Activity *m_activity = nullptr;
+  Compositor *m_compositor = nullptr;
+  bool m_outOfTheWay = false;
   qreal m_sinceBusyThought = 0.0;
   QQuickWindow *m_window = nullptr;
   bool m_layered = false;

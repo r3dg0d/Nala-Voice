@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "activity.h"
+#include "compositor.h"
 #include "cursor.h"
 #include "mascot.h"
 #include "theme.h"
@@ -48,10 +49,10 @@ QString autostartPath() {
 
 Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
                  Theme *theme, Cursor *cursor, Activity *activity,
-                 QObject *parent)
+                 Compositor *compositor, QObject *parent)
     : QObject(parent), m_configPath(std::move(configPath)), m_preview(preview),
       m_testing(testing), m_mascot(mascot), m_theme(theme), m_cursor(cursor),
-      m_activity(activity) {
+      m_activity(activity), m_compositor(compositor) {
   m_saveTimer.setSingleShot(true);
   m_saveTimer.setInterval(400); // coalesce slider drags into one write
   connect(&m_saveTimer, &QTimer::timeout, this, &Backend::save);
@@ -80,6 +81,36 @@ Backend::Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
     connect(m_activity, &Activity::notified, this, [this] {
       if (m_reactToDesktop)
         m_mascot->notify();
+    });
+  }
+
+  if (m_compositor && m_mascot) {
+    // Something went fullscreen: step aside rather than sitting on top of a
+    // film. This is the one reaction that is about being considerate rather
+    // than about being alive.
+    connect(m_compositor, &Compositor::fullscreenChanged, this,
+            [this](bool fullscreen) {
+              if (m_outOfTheWay == fullscreen)
+                return;
+              m_outOfTheWay = fullscreen;
+              applyInputRegion(false); // and stop swallowing clicks
+              emit outOfTheWayChanged();
+            });
+
+    // You moved somewhere else, and she noticed.
+    connect(m_compositor, &Compositor::workspaceChanged, this, [this] {
+      if (m_outOfTheWay)
+        return;
+      m_mascot->wake();
+      m_mascot->glanceAbout();
+    });
+
+    // Something new turned up.
+    connect(m_compositor, &Compositor::windowOpened, this, [this] {
+      if (m_outOfTheWay)
+        return;
+      m_mascot->wake();
+      m_mascot->glanceAbout();
     });
   }
 
@@ -160,6 +191,8 @@ void Backend::applyToMascot() {
     m_cursor->setActive(m_followCursor && !m_testing);
   if (m_activity)
     m_activity->setActive(m_reactToDesktop && !m_testing);
+  if (m_compositor)
+    m_compositor->setActive(m_reactToDesktop && !m_testing);
   if (!m_followCursor)
     m_mascot->lookIdle();
 }
@@ -329,6 +362,13 @@ void Backend::applyInputRegion(bool wholeWindow) {
   const int extent = m_window->width();
   if (extent <= 0)
     return;
+
+  if (m_outOfTheWay) {
+    // Stepped aside: take no input at all, or she would still be catching
+    // clicks meant for whatever is fullscreen.
+    m_window->setMask(QRegion());
+    return;
+  }
 
   if (wholeWindow) {
     // While she is being dragged the pointer wanders outside her silhouette;

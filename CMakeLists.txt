@@ -13,6 +13,7 @@ qt_add_executable(nala
   src/main.cpp
   src/activity.cpp src/activity.h
   src/backend.cpp src/backend.h
+  src/compositor.cpp src/compositor.h
   src/cursor.cpp src/cursor.h
   src/mascot.cpp src/mascot.h
   src/orbits.cpp src/orbits.h

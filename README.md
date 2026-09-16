@@ -63,8 +63,9 @@ which display, cursor-following, idle antics, sleep, layer, reduced motion and
 start-at-login. Stored at `~/.config/nala/preferences.json`.
 
 **React to your desktop** lets her respond to the machine rather than a timer:
-she thinks while the load average says it is working, and shows the
-notification badge when one actually arrives.
+she thinks while the load average says it is working, shows the notification
+badge when one actually arrives, glances up when you change workspace or open
+something, and steps out of sight while anything is fullscreen.
 
 **Idle antics** are dealt from a shuffled bag, so every behaviour turns up once
 per cycle rather than depending on luck. Small movements run on their own
@@ -84,6 +85,7 @@ so she stays legible against the desktop.
 | `src/orbits.*` | The coloured arcs. Each is a circle in 3D, projected every frame and split into the half behind her and the half in front, drawn as scene-graph geometry either side of the body. |
 | `src/trail.*` | The comet trail she leaves when she dashes: a blade of bowed ribbons that straddles her. Shares its stroke geometry with the orbit arcs via `src/stroke.h`. |
 | `src/theme.*` | Watches Noctalia's generated GTK palette and shell settings and re-emits when the wallpaper changes. |
+| `src/compositor.*` | Hyprland's event stream. She glances at workspace changes and new windows, and fades out of the way while something is fullscreen. |
 | `src/cursor.*` | Global pointer position. Wayland denies this to clients, so it asks Hyprland over its IPC socket and reports itself unavailable elsewhere. |
 | `src/backend.*` | Preferences, placement, drag arithmetic and the control socket. |
 

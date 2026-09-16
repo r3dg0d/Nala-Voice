@@ -33,6 +33,16 @@ Window {
         }
     }
 
+    // Stepped aside while something is fullscreen. Faded rather than hidden:
+    // a layer surface cannot be given its role back once destroyed.
+    opacity: backend.outOfTheWay ? 0 : 1
+    Behavior on opacity {
+        NumberAnimation {
+            duration: backend.reducedMotion ? 0 : 260
+            easing.type: Easing.InOutCubic
+        }
+    }
+
     Item {
         id: stage
 
