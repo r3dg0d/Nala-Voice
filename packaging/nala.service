@@ -1,0 +1,16 @@
+[Unit]
+Description=Nala, a desktop companion
+Documentation=https://github.com/yappologistic/Nala
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nala
+ExecStop=/usr/bin/nala quit
+Restart=on-failure
+RestartSec=2
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target

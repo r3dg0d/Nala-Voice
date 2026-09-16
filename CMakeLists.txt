@@ -41,7 +41,20 @@ endif()
 
 target_compile_options(nala PRIVATE -Wall -Wextra -Wpedantic)
 
+include(GNUInstallDirs)
+install(TARGETS nala RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES packaging/nala.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES packaging/nala.service
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user)
+install(FILES assets/nala.svg
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+
 enable_testing()
 add_test(NAME nala-self-test COMMAND nala --self-test)
+add_test(NAME nala-install
+         COMMAND ${CMAKE_COMMAND} -E env
+                 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-install.sh
+                 ${CMAKE_BINARY_DIR})
 set_tests_properties(nala-self-test PROPERTIES ENVIRONMENT
   "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_QUICK_BACKEND=software")

@@ -14,7 +14,23 @@ changes.
 - A Wayland compositor supporting `wlr-layer-shell`; developed on Hyprland
 - Noctalia — optional; without it Nala falls back to her own dark palette
 
+## Install
+
+On Arch or CachyOS:
+
+```bash
+makepkg -si
+```
+
+Then either start her by hand, or have the session start her:
+
+```bash
+systemctl --user enable --now nala
+```
+
 ## Build and run
+
+From a checkout, without installing:
 
 ```bash
 scripts/build.sh
@@ -98,7 +114,7 @@ and an input region shaped to her body.
 ```bash
 scripts/test.sh     # behaviour, headless
 scripts/poses.sh    # render one PNG per form, for comparing against the reference
-ctest --test-dir build
+ctest --test-dir build   # behaviour, plus the install layout
 
 build/nala --film build/film   # record a sequence at 60 fps, one PNG per frame
 ```

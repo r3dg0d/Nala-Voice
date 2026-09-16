@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Nala
+GenericName=Desktop companion
+Comment=A desktop companion that follows the cursor and takes its colours from the wallpaper
+Exec=nala
+Icon=nala
+Terminal=false
+Categories=Utility;
+StartupNotify=false
