@@ -6,10 +6,11 @@ picked up and dropped anywhere. She lives in the notification tray, and she
 takes her colours from Noctalia so she restyles herself when the wallpaper
 changes.
 
-This fork, **Nala-Voice**, also makes her a fully local voice assistant: she
-listens through whisper.cpp, thinks with any OpenAI-compatible local model
-(Ollama, llama.cpp, vLLM — a Qwen vision model fits well), answers in a
-speech bubble and through Fish Speech, can act on the desktop through a
+This fork, **Nala-Voice**, also makes her a fully local voice assistant: say
+"Hey Nala" and she looks up — a tiny on-device wake-word detector, trained on
+your own voice — then she listens through whisper.cpp, thinks with any
+OpenAI-compatible local model (Qwen3.8-Flash-Next recommended; Ollama,
+llama.cpp, vLLM), answers in a speech bubble and through Fish Speech, can act on the desktop through a
 permissioned set of tools, and — only if you turn it on — keeps an episodic
 memory of what you worked on, with a privacy switch that works without the
 model. Nothing leaves your machine. See [The assistant](#the-assistant).
@@ -85,6 +86,9 @@ nala memory resume
 nala memory status
 nala timeline               # the memory window
 nala doctor                 # what is installed, running, and missing
+nala setup                  # the first-run wizard again
+nala profile export ~/nala-profile.json   # name, wake phrases, personality, voice
+nala wakeword setup|train|test|eval|list|delete   # see docs/WAKEWORD.md
 ```
 
 ## Using her
@@ -153,7 +157,9 @@ missing.
 
 | | Status |
 | --- | --- |
-| Push-to-talk, wake word and always-listening, with voice-activity detection | implemented |
+| Local neural wake word, trained on your voice, for any phrase; suspended while she speaks | implemented ([measured](docs/WAKEWORD.md#measured-results)) |
+| Custom assistant name, wake phrases, personality; profile import/export; first-run wizard | implemented |
+| Push-to-talk, click-to-talk, follow-up conversation without repeating her name | implemented |
 | whisper.cpp speech recognition (`whisper-server` or `whisper-cli`) | implemented |
 | Fast command router — pause memory, stop, open settings, open apps… without the model | implemented |
 | Any OpenAI-compatible model, with tool calling and optional vision | implemented |
@@ -162,7 +168,7 @@ missing.
 | Computer use: windows, apps, files, browser, mouse and keyboard, shell | implemented; mouse/keyboard experimental |
 | Screen memory with privacy gate, dedup, retention, storage cap, timeline | implemented |
 | Model-written memory descriptions and a vision privacy check | experimental |
-| Semantic (embedding) search, audio-in models, a dedicated wake-word model | planned |
+| Semantic (embedding) search, audio-in models, echo cancellation | planned |
 
 **Say it** (or `nala ask` it):
 
@@ -172,7 +178,8 @@ missing.
 - "Forget the last five minutes." / "Keep this memory." / "Never record this app."
 - "What GitHub project did I look at yesterday?" / "Didn't I already make a resume?"
 
-**Quick start** with Ollama and whisper.cpp:
+**Quick start** with Ollama and whisper.cpp — or just start Nala and follow
+the setup wizard:
 
 ```bash
 ollama pull qwen2.5vl     # an example; any model works — pick it in Preferences → Assistant
@@ -181,7 +188,12 @@ whisper-cpp-download-ggml-model base.en ~/.local/share/nala/whisper   # "downloa
 nala doctor
 ```
 
-Then bind push-to-talk in Hyprland: `bind = SUPER, N, exec, nala listen`.
+Then bind push-to-talk in Hyprland: `bind = SUPER, N, exec, nala listen`,
+and set up the wake word: Preferences → Wake word → Download, then Train
+(say "Hey Nala" six times). See [docs/WAKEWORD.md](docs/WAKEWORD.md).
+
+**Her name** is yours to choose: Preferences → Assistant → Identity. Wake
+phrases are separate ("Hey Nova", "computer"…), each trained on your voice.
 
 **Safety.** The model reaches the desktop only through typed tools. Each has
 a risk level; risky ones make her ask first ("Close Firefox?" — answer by
@@ -198,7 +210,7 @@ browsing and adult content are never kept, and you can exclude any app or
 window. See [docs/PRIVACY.md](docs/PRIVACY.md).
 
 More: [architecture](docs/ARCHITECTURE.md) · [AI setup](docs/AI.md) ·
-[memory](docs/MEMORY.md) · [privacy](docs/PRIVACY.md) ·
+[wake word](docs/WAKEWORD.md) · [memory](docs/MEMORY.md) · [privacy](docs/PRIVACY.md) ·
 [development](docs/DEVELOPMENT.md) · [handoff notes](HANDOFF.md)
 
 ## Tests

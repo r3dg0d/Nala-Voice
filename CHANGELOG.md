@@ -4,6 +4,60 @@ This project follows [semantic versioning](https://semver.org/). The version
 lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 `nala --version` reports.
 
+## 1.2.0 — 2026-09-23
+
+### Added
+
+- A local wake-word detector: openWakeWord's feature models (ONNX Runtime,
+  one CPU thread, ≈1 % of a core) with a per-phrase detector trained on the
+  user's own recordings -- a classifier and dynamic-time-warping templates
+  that must both agree, calibrated against ~11 hours of real-world negative
+  audio to a false-wake budget. Measured: 9/10 of the user's phrases, 0.83
+  false wakes an hour on 3.6 h of real speech it never saw; see
+  docs/WAKEWORD.md. Models are downloaded on request, checksummed, never
+  shipped.
+- Wake-word flow: she perks up straight from the detector, an optional
+  chime, the request is transcribed only after a wake, follow-ups need no
+  wake phrase for a while, and the detector is suspended while she speaks
+  (with a grace period after) so she cannot wake herself; optional barge-in.
+- A training wizard (six recordings, some ordinary talk, the room), per-phrase
+  enable/retrain/delete, "delete all wake-word recordings", a live
+  confidence meter, and `nala wakeword setup|train|test|eval|list|delete`.
+- Assistant identity: a chosen name used in her system prompt, speech,
+  whisper priming, commands ("open Nova's settings") and the tray; wake
+  phrases independent of the name; personality, answer length and pet
+  expressiveness; profile export/import (`nala profile …`) that never carries
+  keys, memories or recordings.
+- A first-run setup wizard (`nala setup`).
+- Qwen3.8-Flash-Next as the recommended model, picked automatically when the
+  server offers it; server detection (Ollama or other), thinking switched off
+  in the form each server understands, model capability detection, idle
+  unloading, readable out-of-GPU-memory errors, a `system_gpu` tool.
+- A microphone indicator on her: off, listening for her name, taking a
+  request, open, recording. Click-to-talk.
+- `stt.gpu` to keep whisper-cli off the GPU.
+
+### Fixed
+
+- A misheard wake phrase after a real wake ("Hit Nala, resume screen
+  recording") no longer falls through to the model.
+- "Open Nala settings" was heard as "open all settings": her name is now
+  primed inside commands too.
+- After an upgrade, Qt's QML disk cache could keep serving the previous
+  version's windows; Nala no longer uses it.
+- The self-test wrote a QML cache into the real `~/.cache`; test runs now
+  get a private cache directory, as they already did for configuration.
+- A wake chime that could not play marked her voice as broken, silencing
+  every later answer.
+- The wake-word gate counted scores heard during a cooldown or the grace
+  after she spoke towards the next detection.
+
+### Changed
+
+- `stt.wakePhrases` is replaced by `wake.phrases`; `stt.prompt` now defaults
+  to one generated from her identity; `llm.vision` is `auto`/`on`/`off`.
+- Depends on ONNX Runtime (optional at build time).
+
 ## 1.1.0 — 2026-09-22
 
 ### Added

@@ -4,6 +4,26 @@ Nala runs entirely on your machine. The only network connections she makes
 are to the endpoints you configure — by default all on `127.0.0.1` — for the
 model, whisper-server and Fish Speech.
 
+## The microphone
+
+- **Push to talk** (the default until the wake word is set up): the
+  microphone is open only for the one request.
+- **Wake word**: the microphone is open, but only the wake-word detector hears
+  it: 80 ms blocks, processed in memory and dropped. Speech that did not follow
+  her wake phrase is thrown away **before** transcription. A thin ring on her
+  (and "listening for her name" in the tray) means exactly this.
+- **Taking a request**: a filled dot; the utterance goes to whisper.cpp on
+  this computer, then is discarded. With `whisper-cli` it sits in a private
+  temporary file for the second it takes.
+- **Always**: everything is transcribed (grey dot). Use with care.
+- **Recording**: red dot, only while you record wake-word training samples.
+
+Wake-word training recordings are made only when you press Record, stored
+owner-only under `~/.local/share/nala/wakeword/phrases/`, and deleted with
+Preferences → Wake word → × or *Delete all wake-word recordings*. The
+downloaded detector models and negative data contain no one's recordings of
+you.
+
 ## Screen memory is opt-in
 
 It is off until you switch on *Preferences → Memory → Remember my screen*.
@@ -12,7 +32,7 @@ eye. When it is off, neither shows, and nothing is captured.
 
 ## The killswitch
 
-"Nala, pause screen memory" (and its variants — see
+"Nala, pause screen memory" — or "Hey Nova…", whatever she is called — (and its variants — see
 [MEMORY.md](MEMORY.md)) is handled by the fast command router, **without the
 language model**: it works when the model is slow, wrong or not running. It is
 also honoured when her name is misheard or not said at all, because pausing

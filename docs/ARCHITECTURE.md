@@ -28,6 +28,37 @@ upstream) and the assistant, which is built as a static library
             └────────────────────────────────────────────────────────┘
 ```
 
+## Hearing her name
+
+```
+microphone ─► frames ─► WakeWordBackend (wakeword.*) ── detected ──┐
+     │                   CPU, 1 thread, nothing stored              │
+     │                                                              ▼
+     └─► voice-activity detector ─► utterance      Mascot::perk(), chime, "armed"
+                                        │                           │
+                                        ▼                           │
+                           armed / follow-up / push-to-talk? ◄──────┘
+                              no ─► dropped, never transcribed
+                              yes ─► whisper.cpp ─► CommandRouter ─fast─► action
+                                                          └─else─► model
+```
+
+The perk comes straight from the detection signal (`Assistant::wakeDetected`
+→ `Mascot::perk()` in `main.cpp`), before whisper or the model do anything.
+While she speaks the backend is paused and resumed `wake.postSpeechMs` after,
+so her own voice cannot wake her. After a detected wake, a misheard wake
+phrase is forgiven (`CommandRouter::routeAfterWake`).
+
+## Identity
+
+`identity.*` (name, personality, answer length, expressiveness, voice) and
+`wake.*` are read into one `Identity` value (`identity.h`). It produces the
+model's system prompt, whisper's priming prompt, the list of ways of
+addressing her that are stripped from requests, and the router's name for
+"open Nova's settings". Nothing in the AI code writes "Nala" itself; the pet,
+the project and the tray icon are still Nala. `profile::export/import` moves
+an allow-listed set of these settings between machines.
+
 ## Modules
 
 | File | Responsibility |
@@ -45,14 +76,19 @@ upstream) and the assistant, which is built as a static library
 | `memory.*` | SQLite store (FTS5 when available), artifacts, retention, perceptual hash, artifact extraction. |
 | `screenmemory.*` | The capture pipeline, pause/resume, retention timer, optional vision judging and descriptions. |
 | `assistant.*` | Orchestration: state machine, fast actions, the agent loop, confirmations, speaking, tool implementations, diagnostics, timeline data. |
+| `assistant_voice.cpp` | The wake word in the assistant: arming, the chime, training sessions, model download, profiles, setup. |
+| `identity.*` | Who she is, and everything derived from it; profiles. |
+| `wakeword.*` | Wake-word engine: ONNX features, negative bank, trainer (augmentation, logistic regression, DTW templates, calibration), gate, `WakeWordBackend` / `NeuralBackend`. |
+| `wakecli.*` | `nala wakeword …`, and the checksummed model download. |
 
 ## State
 
 `Assistant::settle()` derives one state from a few flags, in priority order:
 `error` > `speaking` > `acting` > `thinking` > `listening` > `sleeping` >
-`idle`. `main.cpp` forwards it to `Mascot::setCue()`, which reuses her own
+`idle` (`listening` also covers being armed by the wake word and the
+follow-up window). `main.cpp` forwards it to `Mascot::setCue()`, which reuses her own
 vocabulary (the thinking tumble, the exclamation, sleep) and does nothing at
-all for `idle`, so the companion's own behaviour and its 142 self-test checks
+all for `idle`, so the companion's own behaviour and its self-test checks
 are untouched when the assistant is quiet.
 
 Screen-memory privacy is not a state: the assistant stays fully usable while
@@ -60,8 +96,10 @@ memory is paused. It is shown separately, as a mark on her body.
 
 ## Threading
 
-Everything runs on the GUI thread except frame scaling/hashing/encoding
-(`QtConcurrent`). Network (model, whisper-server, Fish Speech) and helper
+Everything runs on the GUI thread except frame scaling/hashing/encoding,
+wake-word training and the model download (`QtConcurrent`, each with its own
+ONNX session). The wake-word detector itself runs on the GUI thread: about a
+millisecond of work per 80 ms block. Network (model, whisper-server, Fish Speech) and helper
 processes (`whisper-cli`, `grim`, shell) are asynchronous; nothing blocks
 the UI except short Hyprland IPC calls (sub-millisecond, 600 ms timeout).
 Every in-flight operation can be cancelled: `stop()` bumps the turn counter so
