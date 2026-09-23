@@ -145,6 +145,10 @@ int main(int argc, char **argv) {
   QString themeState =
       QStandardPaths::writableLocation(QStandardPaths::GenericStateLocation);
   if (testing) {
+    // Never touch the real desktop's configuration during a test run: the
+    // autostart check writes and removes an entry, and must do it here rather
+    // than in ~/.config/autostart.
+    qputenv("XDG_CONFIG_HOME", QFile::encodeName(temp.path() + "/config"));
     // Never read the real desktop's theme during a test run.
     themeConfig = temp.path() + "/config";
     themeState = temp.path() + "/state";
@@ -194,7 +198,10 @@ int main(int argc, char **argv) {
 
   engine.load(QUrl("qrc:/qml/Mascot.qml"));
   if (engine.rootObjects().isEmpty()) {
-    QTextStream(stderr) << "Nala could not build its window.\n";
+    QTextStream err(stderr);
+    err << "Nala could not build its window.\n";
+    for (const QString &warning : warnings)
+      err << "  " << warning << "\n";
     return 2;
   }
   auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
