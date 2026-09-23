@@ -1,6 +1,6 @@
 [Unit]
 Description=Nala, a desktop companion
-Documentation=https://github.com/yappologistic/Nala
+Documentation=https://github.com/r3dg0d/Nala-Voice
 PartOf=graphical-session.target
 After=graphical-session.target
 

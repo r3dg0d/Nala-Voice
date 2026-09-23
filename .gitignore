@@ -1,5 +1,9 @@
 # Build output
 build/
+result
+result-*
+result
+result-*
 build-*/
 CMakeCache.txt
 CMakeFiles/
