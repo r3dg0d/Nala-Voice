@@ -47,4 +47,13 @@ else
   status=1
 fi
 
+# So must the user unit, wherever the prefix put it.
+if grep -qx 'ExecStart=/usr/bin/nala' \
+    "$root/usr/lib/systemd/user/nala.service" 2>/dev/null; then
+  echo "PASS the user unit starts the installed binary"
+else
+  echo "FAIL the user unit does not start the installed binary"
+  status=1
+fi
+
 exit "$status"

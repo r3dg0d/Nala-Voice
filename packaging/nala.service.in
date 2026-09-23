@@ -6,8 +6,8 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/nala
-ExecStop=/usr/bin/nala quit
+ExecStart=@NALA_BINDIR@/nala
+ExecStop=@NALA_BINDIR@/nala quit
 Restart=on-failure
 RestartSec=2
 Slice=session.slice

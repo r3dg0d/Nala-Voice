@@ -46,8 +46,20 @@ include(GNUInstallDirs)
 install(TARGETS nala RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES packaging/nala.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES packaging/nala.service
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user)
+# systemd only searches <prefix>/lib/systemd/user for user units, never lib64,
+# so this deliberately ignores CMAKE_INSTALL_LIBDIR. The unit is generated at
+# install time so ExecStart names wherever the binary actually went, including
+# when the prefix is overridden with `cmake --install --prefix`.
+install(CODE "
+  set(NALA_BINDIR \"${CMAKE_INSTALL_BINDIR}\")
+  if(NOT IS_ABSOLUTE \"\${NALA_BINDIR}\")
+    set(NALA_BINDIR \"\${CMAKE_INSTALL_PREFIX}/\${NALA_BINDIR}\")
+  endif()
+  configure_file(\"${CMAKE_CURRENT_SOURCE_DIR}/packaging/nala.service.in\"
+                 \"${CMAKE_CURRENT_BINARY_DIR}/nala.service\" @ONLY)
+")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/nala.service
+        DESTINATION lib/systemd/user)
 install(FILES assets/nala.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 
