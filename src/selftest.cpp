@@ -13,6 +13,7 @@
 #include <QImage>
 #include <QQuickWindow>
 #include <QRect>
+#include <QRegion>
 #include <algorithm>
 
 // Mirrors the constant in mascot.cpp; see docs/animation.md.
@@ -1021,6 +1022,14 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
     compositor.injectEvent("fullscreen>>1");
     check(compositor.fullscreen(), "she sees something go fullscreen");
     check(backend.outOfTheWay(), "and steps aside for it");
+    // An empty mask means "no mask" to Qt, which makes the whole window take
+    // clicks -- over the very thing she stepped aside for.
+    {
+      const QRegion mask = window->mask();
+      const QPoint centre(window->width() / 2, window->height() / 2);
+      check(!mask.isEmpty() && !mask.contains(centre),
+            "and takes no clicks while out of the way");
+    }
 
     compositor.injectEvent("fullscreen>>1"); // repeats must not thrash
     check(backend.outOfTheWay(), "a repeated event changes nothing");

@@ -42,6 +42,11 @@ constexpr qreal kThrowSpeed = 900.0; // pixels per second
 constexpr qreal kDrag = 1.5;         // per second
 constexpr qreal kBounce = 0.62;      // energy kept when she hits an edge
 
+// An input region that takes nothing. Not QRegion(): an empty mask means "no
+// mask", which on Wayland makes the whole surface take input -- the opposite.
+// A single pixel outside the surface leaves nothing inside it.
+QRegion noInput() { return QRegion(-1, -1, 1, 1); }
+
 QString autostartPath() {
   return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
          "/autostart/nala.desktop";
@@ -384,7 +389,7 @@ void Backend::applyInputRegion(bool wholeWindow) {
   if (m_outOfTheWay) {
     // Stepped aside: take no input at all, or she would still be catching
     // clicks meant for whatever is fullscreen.
-    m_window->setMask(QRegion());
+    m_window->setMask(noInput());
     return;
   }
 
