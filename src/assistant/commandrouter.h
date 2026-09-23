@@ -23,7 +23,10 @@ struct Route {
 
 class CommandRouter {
 public:
-  CommandRouter();
+  // `name` is the assistant's, for "open Nova's settings".
+  explicit CommandRouter(const QString &name = QStringLiteral("nala"));
+  void setName(const QString &name);
+  QString name() const { return m_name; }
 
   // Lower-case, strip punctuation and filler, spell numbers as digits.
   static QString normalise(const QString &utterance);
@@ -34,6 +37,12 @@ public:
 
   Route route(const QString &utterance,
               const QStringList &wakePhrases = {}) const;
+  // For an utterance the wake-word detector already vouched for: it starts
+  // with the wake phrase, however whisper spelt it ("hit nala resume screen
+  // memory"). If it does not route as it stands, try every command after the
+  // first one to three words.
+  Route routeAfterWake(const QString &utterance,
+                       const QStringList &wakePhrases) const;
 
   // Every action the router can produce, for documentation and tests.
   QStringList actions() const;
@@ -48,5 +57,8 @@ private:
            std::function<QVariantMap(const QRegularExpressionMatch &)> args =
                nullptr);
 
+  void build();
+
+  QString m_name;
   QVector<Pattern> m_patterns;
 };

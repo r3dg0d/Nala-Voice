@@ -118,6 +118,7 @@ void Microphone::inject(const QVector<int16_t> &samples16k) {
 }
 
 void Microphone::process(const QVector<int16_t> &mono) {
+  emit frames(mono);
   const auto event = m_vad.feed(mono.constData(), int(mono.size()));
   // A 0..1 meter: -60 dBFS reads as silence, -10 as shouting.
   const double level =

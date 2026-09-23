@@ -40,7 +40,20 @@ const QString kUnit =
 
 } // namespace
 
-CommandRouter::CommandRouter() {
+CommandRouter::CommandRouter(const QString &name) { setName(name); }
+
+void CommandRouter::setName(const QString &name) {
+  m_name = normalise(name);
+  if (m_name.isEmpty())
+    m_name = QStringLiteral("nala");
+  m_patterns.clear();
+  build();
+}
+
+void CommandRouter::build() {
+  // Her name, as it may appear in a command: "open nova's settings".
+  const QString own = QStringLiteral("(?:your\\s+|the\\s+|%1's\\s+|%1\\s+)?")
+                          .arg(QRegularExpression::escape(m_name));
   // Order matters: the first pattern that matches the whole utterance wins,
   // so the specific ones come before the general "open <app>".
 
@@ -125,11 +138,11 @@ CommandRouter::CommandRouter() {
       "memory.timeline");
 
   // Her own windows.
-  add("(?:open|show)(?:\\s+me)?\\s+(?:your\\s+|the\\s+|nala's\\s+|nala\\s+)?"
-      "(?:settings|preferences|options|config|configuration)",
+  add("(?:open|show)(?:\\s+me)?\\s+" + own +
+          "(?:settings|preferences|options|config|configuration)",
       "settings.open");
-  add("(?:close|hide)\\s+(?:your\\s+|the\\s+|nala's\\s+|nala\\s+)?"
-      "(?:settings|preferences|options|config|configuration)",
+  add("(?:close|hide)\\s+" + own +
+          "(?:settings|preferences|options|config|configuration)",
       "settings.close");
 
   // Ears and voice.
@@ -321,6 +334,28 @@ Route CommandRouter::route(const QString &utterance,
     }
   }
   return route;
+}
+
+Route CommandRouter::routeAfterWake(const QString &utterance,
+                                    const QStringList &wakePhrases) const {
+  Route direct = route(utterance, wakePhrases);
+  if (direct.matched || direct.addressed)
+    return direct;
+  // Skip no more words than a wake phrase has: "hit nala, don't open
+  // discord" must not become "open discord".
+  int longest = 1;
+  for (const QString &phrase : wakePhrases)
+    longest = std::max(longest, int(normalise(phrase).split(' ', Qt::SkipEmptyParts).size()));
+  const QStringList words = direct.text.split(' ', Qt::SkipEmptyParts);
+  for (int skip = 1; skip <= std::min(longest, 3) && skip < words.size(); ++skip) {
+    Route r = route(words.mid(skip).join(' '), {});
+    if (r.matched) {
+      r.addressed = true;
+      return r;
+    }
+  }
+  direct.addressed = true; // the detector heard her name
+  return direct;
 }
 
 QStringList CommandRouter::actions() const {

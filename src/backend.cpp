@@ -695,6 +695,8 @@ void Backend::closeSettings() { emit settingsCloseRequested(); }
 
 void Backend::openTimeline() { emit timelineRequested(); }
 
+void Backend::openSetup() { emit setupRequested(); }
+
 void Backend::quit() { QCoreApplication::quit(); }
 
 void Backend::command(const QString &name) {

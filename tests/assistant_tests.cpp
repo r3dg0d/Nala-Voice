@@ -6,6 +6,7 @@
 #include "commandrouter.h"
 #include "desktop.h"
 #include "eventlog.h"
+#include "identity.h"
 #include "llm.h"
 #include "memory.h"
 #include "policy.h"
@@ -81,6 +82,57 @@ WindowInfo window(const QString &klass, const QString &title,
   return w;
 }
 
+// A wake-word detector that detects when told to, and remembers whether it
+// was asked to stop listening.
+class MockWake : public wake::WakeWordBackend {
+public:
+  using WakeWordBackend::WakeWordBackend;
+  QString name() const override { return "mock"; }
+  bool initialize(QString *) override { return true; }
+  bool ready() const override { return true; }
+  void start() override { running = true; }
+  void stop() override { running = false; }
+  void pause() override { paused = true; }
+  void resume(int graceMs) override {
+    paused = false;
+    lastGrace = graceMs;
+  }
+  void processAudio(const int16_t *, int count) override { heard += count; }
+  bool registerWakeword(const wake::Model &) override { return true; }
+  void removeWakeword(const QString &) override {}
+  QStringList wakewords() const override { return {"hey nala"}; }
+  void setSensitivity(double) override {}
+  void setConfirmation(int, int) override {}
+  void fire(const QString &phrase = "hey nala") {
+    wake::Detection d;
+    d.phrase = phrase;
+    d.score = 0.9f;
+    emit detected(d);
+  }
+  bool running = false, paused = false;
+  int lastGrace = -1;
+  qint64 heard = 0;
+};
+
+// A recogniser that "hears" whatever it is told to.
+class ScriptedStt : public SpeechToText {
+public:
+  using SpeechToText::SpeechToText;
+  QString name() const override { return "scripted"; }
+  void transcribe(const QByteArray &, const QString &) override {
+    ++calls;
+    emit transcribed(next, 1);
+  }
+  void cancel() override {}
+  QString next;
+  int calls = 0;
+};
+
+QByteArray speech(int ms) {
+  const QVector<int16_t> t = tone(ms, 0.3);
+  return QByteArray(reinterpret_cast<const char *>(t.constData()), t.size() * 2);
+}
+
 } // namespace
 
 class AssistantTests : public QObject {
@@ -145,9 +197,7 @@ private slots:
     QFETCH(QString, said);
     QFETCH(QString, action);
     CommandRouter router;
-    const Route route = router.route(said, AssistantSettings::defaults()
-                                               .value("stt.wakePhrases")
-                                               .toStringList());
+    const Route route = router.route(said, Identity{}.addressForms());
     QVERIFY2(route.matched, qPrintable("not matched: " + route.text));
     QCOMPARE(route.action, action);
   }
@@ -201,6 +251,15 @@ private slots:
     QVERIFY(!r.matched);
     r = router.route("hey arlo open discord", wakes);
     QVERIFY(!r.matched);
+    // After a detected wake, a misheard wake phrase still leaves any command
+    // routable -- but only then.
+    QCOMPARE(router.routeAfterWake("Hit Nala resume screen recording.", wakes).action,
+             QString("memory.resume"));
+    QCOMPARE(router.routeAfterWake("Hey Nana open settings", wakes).action,
+             QString("settings.open"));
+    QVERIFY(!router.route("Hit Nala resume screen recording.", wakes).matched);
+    QVERIFY(!router.routeAfterWake("what was that repo from yesterday", wakes).matched);
+    QVERIFY(!router.routeAfterWake("Hit Nala, don't open Discord.", wakes).matched);
     // "Nalanda" is not her name.
     r = router.route("nalanda university", wakes);
     QVERIFY(!r.addressed);
@@ -930,6 +989,332 @@ private slots:
     QCOMPARE(assistant.state(), QString("idle"));
   }
 
+
+  // --- identity -----------------------------------------------------------------
+
+  void identityPropagates() {
+    QTemporaryDir dir;
+    AssistantSettings settings(dir.filePath("a.json"), false);
+    QVERIFY(settings.set("identity.name", "Nova"));
+    QVERIFY(settings.set("wake.phrases", QStringList{"Hey Nova", "computer"}));
+    Identity id = Identity::from(settings);
+    QCOMPARE(id.wakePhrases(), (QStringList{"hey nova", "computer"}));
+    QVERIFY(id.addressForms().contains("nova"));
+    QVERIFY(id.addressForms().contains("hey nova"));
+    QVERIFY(!id.addressForms().contains("hey nala"));
+    const QString prompt = id.systemPrompt(QDateTime::currentDateTime(), "off", false);
+    QVERIFY(prompt.startsWith("You are Nova,"));
+    QVERIFY(!prompt.contains("Nala"));
+    QVERIFY(id.recognitionPrompt().startsWith("Hey Nova."));
+    QVERIFY(id.recognitionPrompt().contains("Computer."));
+    QVERIFY(id.recognitionPrompt().contains("Pause screen memory."));
+    // A prompt of the user's own, with the name filled in.
+    QVERIFY(id.systemPrompt(QDateTime::currentDateTime(), "off", false,
+                            "You are {name}, a pirate.")
+                .startsWith("You are Nova, a pirate."));
+    settings.set("wake.acceptName", true);
+    QVERIFY(Identity::from(settings).wakePhrases().contains("nova"));
+    settings.set("identity.personality", "minimal");
+    QVERIFY(Identity::from(settings)
+                .systemPrompt(QDateTime::currentDateTime(), "off", false)
+                .contains("terse"));
+  }
+
+  void routerKnowsARenamedAssistant() {
+    CommandRouter router("Nova");
+    Identity id;
+    id.name = "Nova";
+    id.phrases = {"hey nova"};
+    QCOMPARE(router.route("Open Nova's settings.", id.addressForms()).action,
+             QString("settings.open"));
+    QCOMPARE(router.route("open nova settings", id.addressForms()).action,
+             QString("settings.open"));
+    const Route r = router.route("Hey Nova, turn off screen recording.", id.addressForms());
+    QCOMPARE(r.action, QString("memory.pause"));
+    QVERIFY(r.addressed);
+    // Misheard names still reach the privacy switch.
+    QCOMPARE(router.route("Hey Noah, pause screen memory", id.addressForms()).action,
+             QString("memory.pause"));
+  }
+
+  void profilesCarryNoSecrets() {
+    QTemporaryDir dir;
+    AssistantSettings settings(dir.filePath("a.json"), false);
+    settings.set("identity.name", "Luna");
+    settings.set("wake.phrases", QStringList{"hey luna"});
+    settings.set("llm.apiKey", "sk-secret-value-123456789");
+    settings.set("llm.endpoint", "https://example.com/v1");
+    const QJsonObject exported = profile::exportProfile(settings);
+    const QByteArray text = QJsonDocument(exported).toJson();
+    QVERIFY(!text.contains("sk-secret"));
+    QVERIFY(!text.contains("example.com"));
+    QVERIFY(!text.contains("memory."));
+    QVERIFY(text.contains("Luna"));
+
+    AssistantSettings fresh(dir.filePath("b.json"), false);
+    QString error;
+    const QStringList applied = profile::importProfile(fresh, exported, &error);
+    QVERIFY(error.isEmpty());
+    QVERIFY(applied.contains("identity.name"));
+    QCOMPARE(fresh.string("identity.name"), QString("Luna"));
+    QCOMPARE(fresh.list("wake.phrases"), QStringList{"hey luna"});
+    // Keys a profile must never set are ignored even if present.
+    QJsonObject hostile = exported;
+    QJsonObject values = hostile.value("settings").toObject();
+    values.insert("agent.shell", true);
+    values.insert("llm.endpoint", "https://evil.example/v1");
+    hostile.insert("settings", values);
+    profile::importProfile(fresh, hostile, &error);
+    QCOMPARE(fresh.flag("agent.shell"), false);
+    QVERIFY(!fresh.string("llm.endpoint").contains("evil"));
+    QVERIFY(profile::importProfile(fresh, QJsonObject{{"x", 1}}, &error).isEmpty());
+    QVERIFY(!error.isEmpty());
+  }
+
+  // --- the wake-word engine, without models ---------------------------------------
+
+  void gateConfirmsAndCoolsDown() {
+    wake::Gate gate(wake::Gate::Config{0.6f, 2, 1000});
+    QVERIFY(!gate.update(0.9f, 0));   // one window is not enough
+    QVERIFY(gate.update(0.9f, 80));   // two in a row is
+    QVERIFY(!gate.update(0.9f, 160)); // cooling down
+    QVERIFY(!gate.update(0.9f, 240));
+    gate.update(0.1f, 1100);
+    QVERIFY(!gate.update(0.9f, 1180));
+    QVERIFY(gate.update(0.9f, 1260)); // cooled down
+    // Below threshold never counts; a dip resets the run.
+    gate.update(0.1f, 5000);
+    QVERIFY(!gate.update(0.9f, 5080));
+    QVERIFY(!gate.update(0.5f, 5160));
+    QVERIFY(!gate.update(0.9f, 5240));
+    // Suspended while she talks, and a grace period after.
+    gate.suspend(9000);
+    QVERIFY(!gate.update(1.0f, 9080));
+    QVERIFY(!gate.update(1.0f, 9160));
+    gate.resume(9200, 800);
+    QVERIFY(!gate.update(1.0f, 9300));
+    QVERIFY(!gate.update(1.0f, 9400));
+    gate.update(1.0f, 10100);
+    QVERIFY(gate.update(1.0f, 10180));
+  }
+
+  void logisticRegressionLearns() {
+    QRandomGenerator random(3);
+    QVector<QVector<float>> pos, neg;
+    for (int i = 0; i < 200; ++i) {
+      QVector<float> p(20), n(20);
+      for (int d = 0; d < 20; ++d) {
+        p[d] = float(random.generateDouble() + (d < 5 ? 1.5 : 0.0));
+        n[d] = float(random.generateDouble());
+      }
+      pos << p;
+      neg << n;
+    }
+    const wake::Fit fit = wake::fitLogistic(pos, neg, 30, 1e-3, 1);
+    int right = 0;
+    for (const auto &p : pos)
+      right += wake::predict(fit, p.constData(), 20) > 0.5f;
+    for (const auto &n : neg)
+      right += wake::predict(fit, n.constData(), 20) < 0.5f;
+    QVERIFY2(right > 380, qPrintable(QString::number(right)));
+  }
+
+  void wakeModelRoundTrips() {
+    wake::Model m;
+    m.phrase = "hey nala";
+    m.windows = 2;
+    m.mean = QVector<float>(2 * wake::kEmbedding, 0.0f);
+    m.scale = QVector<float>(2 * wake::kEmbedding, 1.0f);
+    m.weights = QVector<float>(2 * wake::kEmbedding, 0.01f);
+    m.threshold = 0.7f;
+    m.center = QVector<float>(wake::kEmbedding, 0.0f);
+    QVector<float> t(3 * wake::kEmbedding, 0.0f);
+    for (int f = 0; f < 3; ++f)
+      t[f * wake::kEmbedding + f] = 1.0f;
+    m.templates << t;
+    m.matchThreshold = 0.8f;
+    m.query = 6;
+    const wake::Model back = wake::Model::fromJson(m.toJson());
+    QVERIFY(back.valid());
+    QVERIFY(back.hasTemplates());
+    QCOMPARE(back.templates.first().size(), t.size());
+    QCOMPARE(back.threshold, 0.7f);
+    // Both tests have to pass: a strong classifier score is held back by a
+    // weak template match, and the other way round.
+    QVERIFY(back.combine(0.99f, 0.5f) < back.threshold);
+    QVERIFY(back.combine(0.5f, 0.99f) < back.threshold);
+    QVERIFY(back.combine(0.9f, 0.9f) >= back.threshold);
+    // A query containing the template matches it closely; noise does not.
+    QVector<float> query(6 * wake::kEmbedding, 0.0f);
+    for (int f = 0; f < 3; ++f)
+      query[(f + 2) * wake::kEmbedding + f] = 1.0f;
+    query[0] = query[wake::kEmbedding + 50] = 1.0f;
+    QVERIFY(back.match(query.constData(), 6) > 0.9f);
+    QVector<float> other(6 * wake::kEmbedding, 0.0f);
+    for (int f = 0; f < 6; ++f)
+      other[f * wake::kEmbedding + 60 + f] = 1.0f;
+    QVERIFY(back.match(other.constData(), 6) < 0.5f);
+  }
+
+  void augmentationKeepsLength() {
+    const wake::Clip clip = tone(1000, 0.3);
+    QCOMPARE(wake::augment::gain(clip, 6).size(), clip.size());
+    QCOMPARE(wake::augment::reverb(clip, 0.5, 1).size(), clip.size());
+    QCOMPARE(wake::augment::mix(clip, noise(300, 0.1), 10, 1).size(), clip.size());
+    QVERIFY(std::abs(int(wake::augment::speed(clip, 1.1).size()) - int(clip.size() / 1.1)) <= 1);
+    wake::Clip padded = noise(500, 0.0005);
+    padded += clip;
+    padded += noise(500, 0.0005, 2);
+    const wake::Clip trimmed = wake::augment::trim(padded);
+    QVERIFY(trimmed.size() < padded.size() - wake::kRate * 0.8);
+  }
+
+  // --- the wake word, in the assistant ---------------------------------------------
+
+  void wakeWordGatesTheRecogniser() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.activation", "wake");
+    MockWake detector;
+    ScriptedStt stt;
+    assistant.setSpeechBackend(&stt);
+    assistant.setWakeBackend(&detector, true);
+    QVERIFY(detector.running);
+    QCOMPARE(assistant.micState(), QString("off")); // tests never open the mic
+
+    // Audio reaches the detector, and nobody addressed her: dropped, never
+    // transcribed.
+    assistant.hearAudio(tone(200, 0.1));
+    QVERIFY(detector.heard > 0);
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(stt.calls, 0);
+
+    // Her name: she reacts at once and listens for the request.
+    QSignalSpy woke(&assistant, &Assistant::wakeDetected);
+    detector.fire();
+    QCOMPARE(woke.count(), 1);
+    QVERIFY(assistant.armed());
+    QCOMPARE(assistant.state(), QString("listening"));
+
+    // The request goes through the fast router: no model involved.
+    QSignalSpy settingsOpened(&assistant, &Assistant::settingsRequested);
+    stt.next = "Hey Nala, open Nala settings.";
+    assistant.hearUtterance(speech(1200));
+    QCOMPARE(stt.calls, 1);
+    QCOMPARE(settingsOpened.count(), 1);
+    QVERIFY(!assistant.armed());
+
+    // The privacy switch after a wake.
+    assistant.memory()->setEnabled(true);
+    detector.fire();
+    stt.next = "Hey Nala, pause screen recording.";
+    assistant.hearUtterance(speech(1200));
+    QVERIFY(assistant.memory()->paused());
+    detector.fire();
+    stt.next = "Hey Nala, resume screen recording.";
+    assistant.hearUtterance(speech(1200));
+    QVERIFY(!assistant.memory()->paused());
+  }
+
+  void sheDoesNotWakeHerself() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("stt.activation", "wake");
+    assistant.settings()->set("wake.postSpeechMs", 900);
+    MockWake detector;
+    ScriptedStt stt;
+    assistant.setSpeechBackend(&stt);
+    assistant.setWakeBackend(&detector, true);
+
+    assistant.setSpeakingForTest(true);
+    QVERIFY(detector.paused);                // not listening while she talks
+    detector.fire();                         // and if something slipped through
+    QVERIFY(!assistant.armed());             // it is ignored
+    assistant.setSpeakingForTest(false);
+    QVERIFY(!detector.paused);
+    QCOMPARE(detector.lastGrace, 900);       // back after a grace period
+
+    // Barge-in, when asked for: her name interrupts her.
+    assistant.settings()->set("wake.bargeIn", true);
+    assistant.setSpeakingForTest(true);
+    QVERIFY(!detector.paused);
+    detector.fire();
+    QVERIFY(assistant.armed());
+    QVERIFY(!assistant.speakingForTest());
+  }
+
+  void followUpsNeedNoWakePhrase() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("stt.activation", "wake");
+    assistant.settings()->set("wake.followUpSec", 10);
+    MockWake detector;
+    ScriptedStt stt;
+    assistant.setSpeechBackend(&stt);
+    assistant.setWakeBackend(&detector, true);
+
+    // She answers; for a while the next thing said is for her.
+    LlmReply reply;
+    reply.content = "Your GPU is running the local model.";
+    reply.message = QJsonObject{{"role", "assistant"}, {"content", reply.content}};
+    assistant.injectModelReply(reply);
+    QVERIFY(assistant.followingUp());
+    stt.next = "open settings";
+    QSignalSpy settingsOpened(&assistant, &Assistant::settingsRequested);
+    assistant.hearUtterance(speech(900));
+    QCOMPARE(stt.calls, 1);
+    QCOMPARE(settingsOpened.count(), 1);
+
+    // Off: back to needing her name.
+    assistant.settings()->set("wake.followUpSec", 0);
+    assistant.injectModelReply(reply);
+    QVERIFY(!assistant.followingUp());
+    assistant.hearUtterance(speech(900));
+    QCOMPARE(stt.calls, 1);
+  }
+
+  void renamingRetiresTheOldName() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("identity.name", "Nova");
+    assistant.settings()->set("wake.phrases", QStringList{"hey nova"});
+    assistant.settings()->set("stt.activation", "wake");
+    QCOMPARE(assistant.assistantName(), QString("Nova"));
+    // No trained detector: wake mode listens through the recogniser, and
+    // only the enabled phrases count.
+    QSignalSpy settingsOpened(&assistant, &Assistant::settingsRequested);
+    assistant.hearForTest("Hey Nala, open settings.");
+    QCOMPARE(settingsOpened.count(), 0);
+    assistant.hearForTest("Hey Nova, open settings.");
+    QCOMPARE(settingsOpened.count(), 1);
+    // The model is told who she is.
+    QSignalSpy said(&assistant, &Assistant::said);
+    assistant.ask("hey nova how much storage are your memories using");
+    QVERIFY(!said.isEmpty());
+    // Pausing memory still works with the old name misheard or said.
+    assistant.memory()->setEnabled(true);
+    assistant.hearForTest("Hey Nala, turn off screen recording.");
+    QVERIFY(assistant.memory()->paused());
+  }
+
+  // --- choosing a model ------------------------------------------------------------
+
+  void picksTheRecommendedModel() {
+    const QStringList preferred = AssistantSettings::defaults().value("llm.preferred").toStringList();
+    QCOMPARE(preferred.first(), QString("qwen3.8-flash-next"));
+    QCOMPARE(LlmClient::pickModel({"gemma4:latest", "hf.co/unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ1_S",
+                                   "qwen3:8b"},
+                                  preferred),
+             QString("hf.co/unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ1_S"));
+    QCOMPARE(LlmClient::pickModel({"gemma4-coder:latest", "qwen3.8-neo-coder:Q4_K_M"}, preferred),
+             QString("qwen3.8-neo-coder:Q4_K_M"));
+    QCOMPARE(LlmClient::pickModel({"llama3:8b"}, preferred), QString("llama3:8b"));
+    QVERIFY(LlmClient::guessCapabilities("Qwen/Qwen3.8-Flash-Next").contains("vision"));
+    QVERIFY(!LlmClient::guessCapabilities("qwen3.8-neo-coder").contains("vision"));
+    QVERIFY(LlmClient::explain("CUDA error: out of memory").contains("GPU memory"));
+  }
+
   // --- against real backends, when they are there ------------------------------
   //
   // Skipped unless pointed at something:
@@ -973,7 +1358,7 @@ private slots:
     for (auto &stt : backends) {
       QSignalSpy heard(stt.get(), &SpeechToText::transcribed);
       QSignalSpy failed(stt.get(), &SpeechToText::failed);
-      stt->setPrompt(AssistantSettings::defaults().value("stt.prompt").toString());
+      stt->setPrompt(Identity{}.recognitionPrompt());
       stt->transcribe(pcm, "en");
       QTRY_VERIFY_WITH_TIMEOUT(!heard.isEmpty() || !failed.isEmpty(), 60000);
       QVERIFY2(failed.isEmpty(), qPrintable(failed.value(0).value(0).toString()));
@@ -1041,7 +1426,8 @@ private slots:
     QTemporaryDir dir;
     Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
     const QJsonArray all = assistant.tools().schema(
-        {"computer", "window", "apps", "files", "browser", "shell", "memory", "nala"});
+        {"computer", "window", "apps", "files", "browser", "shell", "memory", "nala",
+         "system"});
     QCOMPARE(all.size(), assistant.tools().tools().size());
     QSet<QString> names;
     for (const QJsonValue &value : all) {

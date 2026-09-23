@@ -1,6 +1,7 @@
 #include "activity.h"
 #include "assistant.h"
 #include "eventlog.h"
+#include "identity.h"
 #include "screenmemory.h"
 #include "settings.h"
 #include "backend.h"
@@ -11,6 +12,7 @@
 #include "orbits.h"
 #include "selftest.h"
 #include "trail.h"
+#include "wakecli.h"
 #include "theme.h"
 
 #include <QApplication>
@@ -21,6 +23,8 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLockFile>
+#include <QSaveFile>
+#include <QJsonDocument>
 #include <QPointer>
 #include <QAction>
 #include <QFileInfo>
@@ -74,11 +78,22 @@ QString runtimeSocket() {
 
 int main(int argc, char **argv) {
   qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
+  // Qt's QML disk cache has been seen to serve the previous build's QML after
+  // an upgrade -- a new binary showing old windows. Compiling Nala's QML on
+  // start costs tens of milliseconds, so it is not worth the risk.
+  if (qEnvironmentVariableIsEmpty("QML_DISABLE_DISK_CACHE"))
+    qputenv("QML_DISABLE_DISK_CACHE", "1");
   if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP") &&
       qgetenv("QT_QUICK_BACKEND") != "software" &&
       qgetenv("QT_QPA_PLATFORM") != "offscreen")
     qputenv("QSG_RENDER_LOOP", "threaded");
   QQuickWindow::setDefaultAlphaBuffer(true);
+
+  // `nala wakeword …` is a tool, not the companion: no window, no second
+  // instance check.
+  const bool wakewordTool = argc > 1 && qstrcmp(argv[1], "wakeword") == 0;
+  if (wakewordTool && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+    qputenv("QT_QPA_PLATFORM", "offscreen");
 
   QApplication app(argc, argv);
   app.setApplicationName("nala");
@@ -87,6 +102,11 @@ int main(int argc, char **argv) {
   app.setApplicationVersion(QStringLiteral(NALA_VERSION));
   app.setDesktopFileName("nala");
   app.setQuitOnLastWindowClosed(false);
+
+  if (wakewordTool) {
+    app.setApplicationName("nala");
+    return runWakewordCli(app.arguments().mid(2));
+  }
 
   QCommandLineParser parser;
   parser.setApplicationDescription("Nala — a desktop companion for Hyprland");
@@ -104,7 +124,8 @@ int main(int argc, char **argv) {
       "command",
       "run (default), settings, status, poke, wink, think, alert, notify, "
       "scatter, dash, demo, rest, reset, quit; and for the assistant: "
-      "listen, ask <words>, stop, doctor, timeline, "
+      "listen, ask <words>, stop, doctor, timeline, setup, "
+      "profile export|import <file>, wakeword <command> (see \"nala wakeword\"), "
       "memory pause [minutes] | resume | status");
   parser.process(app);
 
@@ -120,13 +141,25 @@ int main(int argc, char **argv) {
                                 : parser.positionalArguments().join(' ');
   const QString socketPath = runtimeSocket();
 
+  // A profile path means the caller's directory, not the running copy's.
+  QString forwarded = requested;
+  if (requested.startsWith("hear ")) {
+    forwarded = QStringLiteral("hear ") +
+                QFileInfo(requested.section(' ', 1).trimmed()).absoluteFilePath();
+  } else if (requested.startsWith("profile ")) {
+    const QString path = requested.section(' ', 2).trimmed();
+    if (!path.isEmpty() && !path.startsWith("~/"))
+      forwarded = requested.section(' ', 0, 1) + ' ' +
+                  QFileInfo(path).absoluteFilePath();
+  }
+
   // Hand the command to an already-running Nala rather than starting a second.
   if (!testing && !preview) {
     QLocalSocket client;
     client.connectToServer(socketPath);
     if (client.waitForConnected(300)) {
       // One line on the wire: newlines in an argument would split it.
-      QString line = requested == "run" ? QStringLiteral("status") : requested;
+      QString line = requested == "run" ? QStringLiteral("status") : forwarded;
       line.replace('\n', ' ');
       client.write(line.toUtf8().left(4000) + "\n");
       client.flush();
@@ -135,6 +168,47 @@ int main(int argc, char **argv) {
       if (client.waitForReadyRead(line == "doctor" ? 12000 : 2500))
         QTextStream(stdout) << client.readAll();
       return 0;
+    }
+    // Not running: a profile can still be read or written straight from the
+    // settings file.
+    if (requested.startsWith("profile ")) {
+      const QString what = forwarded.section(' ', 1, 1);
+      QString path = forwarded.section(' ', 2).trimmed();
+      if (path.startsWith("~/"))
+        path = QDir::homePath() + path.mid(1);
+      AssistantSettings settings(
+          (parser.value("config").isEmpty()
+               ? QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/nala"
+               : QFileInfo(parser.value("config")).absolutePath()) +
+          "/assistant.json");
+      QString error;
+      if (what == "export") {
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly))
+          error = file.errorString();
+        else {
+          file.write(QJsonDocument(profile::exportProfile(settings))
+                         .toJson(QJsonDocument::Indented));
+          if (!file.commit())
+            error = file.errorString();
+        }
+      } else if (what == "import") {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly))
+          error = file.errorString();
+        else if (profile::importProfile(settings,
+                                        QJsonDocument::fromJson(file.readAll()).object(),
+                                        &error)
+                     .isEmpty() &&
+                 error.isEmpty())
+          error = QStringLiteral("nothing in it could be used");
+        settings.flush();
+      } else {
+        error = QStringLiteral("usage: nala profile export|import <file.json>");
+      }
+      QTextStream(error.isEmpty() ? stdout : stderr)
+          << (error.isEmpty() ? QStringLiteral("ok") : error) << "\n";
+      return error.isEmpty() ? 0 : 1;
     }
     if (requested == "status" || requested == "quit" ||
         requested == "doctor" || requested.startsWith("ask ") ||
@@ -168,6 +242,7 @@ int main(int argc, char **argv) {
     // autostart check writes and removes an entry, and must do it here rather
     // than in ~/.config/autostart.
     qputenv("XDG_CONFIG_HOME", QFile::encodeName(temp.path() + "/config"));
+    qputenv("XDG_CACHE_HOME", QFile::encodeName(temp.path() + "/cache"));
     // Never read the real desktop's theme during a test run.
     themeConfig = temp.path() + "/config";
     themeState = temp.path() + "/state";
@@ -218,6 +293,18 @@ int main(int argc, char **argv) {
                    [&] { mascot.setCue(assistant.state()); });
   QObject::connect(&assistant, &Assistant::levelsChanged, &mascot,
                    [&] { mascot.setVoiceLevel(assistant.voiceLevel()); });
+  // Heard her wake phrase: she perks up now, from the detector itself,
+  // before the recogniser or the model have done anything.
+  QObject::connect(&assistant, &Assistant::wakeDetected, &mascot,
+                   [&] { mascot.perk(); });
+  const auto applyIdentity = [&] {
+    mascot.setExpressiveness(assistant.identity().expressiveScale());
+  };
+  applyIdentity();
+  QObject::connect(&assistant, &Assistant::identityChanged, &mascot,
+                   applyIdentity);
+  QObject::connect(&assistant, &Assistant::setupRequested, &backend,
+                   &Backend::openSetup);
   // However screen memory gets paused -- voice, tray, a button -- she covers
   // her eyes, so the moment is visible.
   auto memoryWasPaused = std::make_shared<bool>(assistant.memory()->paused());
@@ -333,6 +420,23 @@ int main(int argc, char **argv) {
           } else if (verb == "stop") {
             assistant.stop();
             reply("ok");
+          } else if (verb == "profile") {
+            const QString what = rest.section(' ', 0, 0);
+            const QString path = rest.section(' ', 1).trimmed();
+            if ((what != "export" && what != "import") || path.isEmpty()) {
+              reply("usage: nala profile export|import <file.json>");
+              return;
+            }
+            const QString error = what == "export"
+                                      ? assistant.exportProfile(path)
+                                      : assistant.importProfile(path);
+            reply(error.isEmpty() ? QStringLiteral("ok") : error);
+          } else if (verb == "hear") {
+            const QString error = assistant.hearFile(rest);
+            reply(error.isEmpty() ? QStringLiteral("ok") : error);
+          } else if (verb == "setup") {
+            backend.openSetup();
+            reply("ok");
           } else if (verb == "timeline") {
             backend.openTimeline();
             reply("ok");
@@ -391,7 +495,21 @@ int main(int argc, char **argv) {
   menu.addSeparator();
   menu.addAction("Quit Nala", &app, &QApplication::quit);
   tray.setContextMenu(&menu);
-  tray.setToolTip("Nala");
+  // The tray says who she is and whether the microphone is open.
+  const auto refreshTooltip = [&] {
+    const QString mic = assistant.micState();
+    tray.setToolTip(
+        mic == "off"         ? assistant.assistantName()
+        : mic == "wake"      ? QStringLiteral("%1 -- listening for her name")
+                                   .arg(assistant.assistantName())
+        : mic == "recording" ? QStringLiteral("%1 -- recording")
+                                   .arg(assistant.assistantName())
+                             : QStringLiteral("%1 -- microphone open")
+                                   .arg(assistant.assistantName()));
+  };
+  refreshTooltip();
+  QObject::connect(&assistant, &Assistant::stateChanged, &tray, refreshTooltip);
+  QObject::connect(&assistant, &Assistant::identityChanged, &tray, refreshTooltip);
 
   const auto refreshTray = [&] {
     const QColor ink = theme.colors().value("text").value<QColor>();

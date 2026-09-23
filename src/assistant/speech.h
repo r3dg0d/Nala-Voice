@@ -66,6 +66,8 @@ public:
   ~WhisperCli() override;
   QString name() const override { return QStringLiteral("whisper-cli"); }
   void configure(const QString &binary, const QString &model);
+  // Off: whisper.cpp runs on the CPU and leaves the GPU to the model.
+  void setGpu(bool gpu) { m_gpu = gpu; }
   void transcribe(const QByteArray &pcm16k, const QString &language) override;
   void cancel() override;
 
@@ -75,6 +77,7 @@ public:
 private:
   QString m_binary;
   QString m_model;
+  bool m_gpu = true;
   QPointer<QProcess> m_process;
   QTemporaryDir *m_dir = nullptr;
   QElapsedTimer m_clock;

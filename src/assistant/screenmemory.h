@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QQueue>
 #include <QTimer>
+#include <functional>
 
 class AssistantSettings;
 class EventLog;
@@ -60,6 +61,9 @@ public:
   // if it had just been captured from `window`.
   void ingest(const QImage &frame, const WindowInfo &window,
               const QDateTime &now = QDateTime::currentDateTime());
+  // Whether the model can see: judging and describing frames need it.
+  void setVisionCheck(std::function<bool()> check) { m_vision = std::move(check); }
+
   // Test seam: stop the capture timer and the helpers from running.
   void setOffline(bool offline);
 
@@ -99,6 +103,8 @@ private:
   QString m_lastWindow;
   QString m_lastTitle;
 
+  std::function<bool()> m_vision;
+  bool vision() const { return m_vision ? m_vision() : false; }
   QQueue<qint64> m_toDescribe;
   bool m_describing = false;
   qint64 m_describingId = 0;

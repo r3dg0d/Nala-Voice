@@ -53,3 +53,20 @@ qrc_*.cpp
 .env
 *.pem
 *.key
+
+# Voices, models and data that belong to a user, never to the repository:
+# wake-word recordings, downloaded feature models and negative data, whisper
+# and TTS weights, memory databases, logs.
+*.wav
+*.flac
+*.ogg
+*.onnx
+*.npy
+*.bin
+*.gguf
+*.safetensors
+*.db
+*.db-wal
+*.db-shm
+*.log
+

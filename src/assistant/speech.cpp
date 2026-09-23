@@ -147,6 +147,8 @@ void WhisperCli::transcribe(const QByteArray &pcm16k, const QString &language) {
                             "-nt", "-np"};
   if (!m_prompt.isEmpty())
     args << "--prompt" << m_prompt;
+  if (!m_gpu)
+    args << "-ng";
   auto *process = new QProcess(this);
   m_process = process;
   m_clock.start();

@@ -168,6 +168,36 @@ Window {
             }
         }
 
+        // The microphone, shown on her other side: a thin ring while only
+        // the wake-word detector hears it, filled while a request is being
+        // taken down, grey when everything is transcribed, red when a
+        // training sample is recording. Nothing when it is off.
+        Item {
+            id: micMark
+
+            objectName: "micMark"
+            readonly property real unit: stage.width * 0.5 * 0.529
+            readonly property string state: assistant.micState
+            visible: state !== "off"
+            width: unit * 0.3
+            height: width
+            x: stage.width / 2 - unit * 0.62 - width / 2
+            y: stage.height / 2 - unit * 0.78 - height / 2
+            z: 2
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: micMark.state === "wake" ? "transparent"
+                     : micMark.state === "recording" ? "#e5484d"
+                     : micMark.state === "open" ? "#9a9aa2"
+                     : theme.colors.accent
+                border.width: Math.max(1, parent.width * (micMark.state === "wake" ? 0.14 : 0.1))
+                border.color: micMark.state === "wake" ? theme.colors.accent : "#fdfdfd"
+                opacity: micMark.state === "wake" ? 0.75 : 0.95
+            }
+        }
+
         // Droplets thrown clear when she comes apart. Positions arrive in
         // units of her body radius, measured from her centre.
         Repeater {
@@ -243,8 +273,11 @@ Window {
             if (moved)
                 return;
             // Tapping her while she talks is the quickest way to hush her.
-            if (assistant.state === "speaking" || assistant.state === "thinking")
+            if (assistant.state === "speaking" || assistant.state === "thinking") {
                 assistant.stop();
+            } else if (assistantSettings.values["ui.clickToTalk"]) {
+                assistant.toggleListening();
+            }
             mascot.poke();
         }
 
@@ -272,6 +305,19 @@ Window {
         id: bubble
     }
 
+    // First run: who she is, what wakes her, what she may do.
+    Loader {
+        id: setup
+
+        active: false
+        source: "qrc:/qml/Setup.qml"
+        onLoaded: {
+            item.show();
+            item.raise();
+            item.requestActivate();
+        }
+    }
+
     Loader {
         id: timeline
 
@@ -289,6 +335,14 @@ Window {
         function onSettingsCloseRequested() {
             if (settings.active)
                 settings.item.hide();
+        }
+        function onSetupRequested() {
+            if (!setup.active) {
+                setup.active = true;
+            } else {
+                setup.item.show();
+                setup.item.raise();
+            }
         }
         function onTimelineRequested() {
             if (!timeline.active) {

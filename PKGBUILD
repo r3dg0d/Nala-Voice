@@ -1,13 +1,13 @@
 # Maintainer: yappologistic <262229790+yappologistic@users.noreply.github.com>
 # Contributor: r3dg0d <192937334+r3dg0d@users.noreply.github.com>
 pkgname=nala
-pkgver=1.1.0
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="A desktop companion for Hyprland with a local voice assistant and screen memory"
 arch=('x86_64' 'aarch64')
 url="https://github.com/r3dg0d/Nala-Voice"
 license=('MIT')
-depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'layer-shell-qt')
+depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'layer-shell-qt' 'onnxruntime')
 makedepends=('cmake' 'ninja' 'qt6-shadertools')
 optdepends=('hyprland: cursor tracking, window control, screen memory'
             'noctalia-shell: wallpaper theming and notification badges'

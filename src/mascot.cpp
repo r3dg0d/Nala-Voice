@@ -989,3 +989,18 @@ void Mascot::sleep() {
   m_scaleTarget = 1.0;
   m_eyeHeightTarget = 0.0;
 }
+
+void Mascot::perk() {
+  wake();
+  // A quick hop: squashed down, then springing up past full size.
+  m_scale = 1.0 - 0.06 * m_expressive;
+  m_scaleVelocity = 1.4 * m_expressive;
+  m_scaleTarget = 1.0;
+  m_listen = std::max(m_listen, 0.6);
+  m_listenTarget = 1.0;
+  m_yawTarget = 0.0;
+  m_pitchTarget = 0.08;
+  m_lookingAtCursor = false;
+  m_blinkPhase = -1.0; // eyes open, not mid-blink
+  scheduleBlink();
+}

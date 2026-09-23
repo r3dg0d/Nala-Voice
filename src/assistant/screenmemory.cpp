@@ -261,7 +261,7 @@ void ScreenMemory::consider(const QImage &frame, const WindowInfo &window,
               return;
             }
             const bool judge = m_settings->flag("privacy.visionFilter") &&
-                               m_settings->flag("llm.vision") &&
+                               vision() &&
                                m_settings->flag("llm.enabled");
             if (!judge) {
               keep(result.jpeg, result.hash, window, epoch, now);
@@ -362,7 +362,7 @@ void ScreenMemory::keep(const QByteArray &jpeg, quint64 hash,
                 {{"id", id}, {"app", window.appClass}, {"bytes", jpeg.size()}});
   emit stored(id);
 
-  if (m_settings->flag("memory.describe") && m_settings->flag("llm.vision") &&
+  if (m_settings->flag("memory.describe") && vision() &&
       m_settings->flag("llm.enabled")) {
     if (m_toDescribe.size() >= 20)
       m_toDescribe.dequeue(); // behind: describe the recent ones

@@ -17,6 +17,7 @@
         qt6.qtwayland
         qt6.qtmultimedia
         kdePackages.layer-shell-qt
+        onnxruntime   # the wake-word detector
       ];
 
       # Optional helpers Nala shells out to. Missing ones are reported by
@@ -26,7 +27,7 @@
       packages = forAll (pkgs: {
         default = pkgs.stdenv.mkDerivation {
           pname = "nala";
-          version = "1.1.0";
+          version = "1.2.0";
           src = self;
           nativeBuildInputs = with pkgs; [ cmake ninja qt6.wrapQtAppsHook ];
           buildInputs = qtDeps pkgs;

@@ -23,7 +23,7 @@ Window {
         rejected = assistantSettings.set(key, value) ? "" : "That value was not accepted for " + key + ".";
     }
 
-    width: 500
+    width: 600
     height: Math.min(660, Screen.height - 80)
     minimumWidth: width
     maximumWidth: width
@@ -71,7 +71,7 @@ Window {
             spacing: 4
 
             Repeater {
-                model: ["Nala", "Assistant", "Agent", "Memory", "Privacy", "Developer"]
+                model: ["Nala", "Assistant", "Wake word", "Agent", "Memory", "Privacy", "Developer"]
 
                 ActionButton {
                     required property int index
@@ -323,10 +323,81 @@ Window {
             // --- ears, brain and voice ---------------------------------------
             SettingsPage {
                 Heading {
+                    text: "Identity"
+                }
+                Note {
+                    text: "The name she answers to and uses for herself. The desktop pet is still Nala; the assistant living in her can be anyone."
+                }
+                SettingField {
+                    objectName: "assistantNameField"
+                    key: "identity.name"
+                    label: "Assistant name"
+                }
+                ActionButton {
+                    readonly property string suggested: "hey " + assistant.assistantName.toLowerCase()
+                    visible: (settings.v("wake.phrases") || []).indexOf(suggested) < 0
+                    text: "Wake on “" + suggested + "” too"
+                    onClicked: assistant.setPhraseEnabled(suggested, true)
+                }
+                SettingChoice {
+                    key: "identity.personality"
+                    label: "Personality"
+                    options: [
+                        { label: "Friendly", value: "friendly" },
+                        { label: "Playful", value: "playful" },
+                        { label: "Professional", value: "professional" },
+                        { label: "Minimal", value: "minimal" },
+                        { label: "Custom", value: "custom" }
+                    ]
+                }
+                SettingField {
+                    visible: settings.v("identity.personality") === "custom"
+                    key: "identity.customPersonality"
+                    label: "Describe how she should be"
+                }
+                SettingChoice {
+                    key: "identity.responseLength"
+                    label: "Answers"
+                    options: [
+                        { label: "Short", value: "short" },
+                        { label: "Normal", value: "normal" },
+                        { label: "Detailed", value: "detailed" }
+                    ]
+                }
+                SettingChoice {
+                    key: "identity.expressiveness"
+                    label: "Pet expressiveness"
+                    options: [
+                        { label: "Low", value: "low" },
+                        { label: "Normal", value: "normal" },
+                        { label: "High", value: "high" }
+                    ]
+                }
+                RowLayout {
+                    spacing: 6
+                    NalaField {
+                        id: profilePath
+                        Layout.fillWidth: true
+                        text: "~/nala-profile.json"
+                    }
+                    ActionButton {
+                        text: "Export"
+                        onClicked: settings.rejected = assistant.exportProfile(profilePath.text) || ""
+                    }
+                    ActionButton {
+                        text: "Import"
+                        onClicked: settings.rejected = assistant.importProfile(profilePath.text) || ""
+                    }
+                }
+                Note {
+                    text: "A profile holds her name, wake phrases, personality, voice and interface choices -- never keys, memories or recordings."
+                }
+
+                Heading {
                     text: "Language model"
                 }
                 Note {
-                    text: "Any OpenAI-compatible server: Ollama, llama.cpp, vLLM, LM Studio. A Qwen vision model is a good fit. Using: " + (assistant.model || "none yet")
+                    text: "Any OpenAI-compatible server: Ollama, llama.cpp, vLLM, SGLang, LM Studio. Qwen3.8-Flash-Next is recommended and chosen automatically when the server has it; otherwise the best Qwen it offers. Using: " + (assistant.model || "none yet") + (assistant.capabilities.length ? " (" + assistant.capabilities.join(", ") + ")" : "")
                 }
                 SettingSwitch {
                     key: "llm.enabled"
@@ -339,16 +410,40 @@ Window {
                 SettingField {
                     key: "llm.model"
                     label: "Model"
-                    placeholder: "first one the server lists"
+                    placeholder: "automatic (Qwen3.8-Flash-Next first)"
                 }
                 SettingField {
                     key: "llm.apiKey"
                     label: "API key (only if the server wants one)"
                     secret: true
                 }
-                SettingSwitch {
+                SettingChoice {
                     key: "llm.vision"
-                    text: "The model can see images"
+                    label: "Vision"
+                    options: [
+                        { label: "As the server reports", value: "auto" },
+                        { label: "On", value: "on" },
+                        { label: "Off", value: "off" }
+                    ]
+                }
+                SettingChoice {
+                    key: "llm.thinking"
+                    label: "Thinking"
+                    options: [
+                        { label: "Off (fast answers)", value: "off" },
+                        { label: "On", value: "on" },
+                        { label: "Server default", value: "server" }
+                    ]
+                }
+                SettingChoice {
+                    key: "llm.unloadIdleMin"
+                    label: "Free GPU memory"
+                    options: [
+                        { label: "Never", value: 0 },
+                        { label: "After 5 idle minutes", value: 5 },
+                        { label: "After 15 idle minutes", value: 15 },
+                        { label: "After an idle hour", value: 60 }
+                    ]
                 }
                 SettingSwitch {
                     key: "llm.toolCalling"
@@ -361,18 +456,6 @@ Window {
                 SettingSwitch {
                     key: "stt.enabled"
                     text: "Listen for speech"
-                }
-                SettingChoice {
-                    key: "stt.activation"
-                    label: "Listening"
-                    options: [
-                        { label: "Push to talk", value: "push" },
-                        { label: "Wake word", value: "wake" },
-                        { label: "Always", value: "always" }
-                    ]
-                }
-                Note {
-                    text: "Push to talk: bind a key to “nala listen”. Wake word: the microphone stays open and she answers to “Hey Nala”."
                 }
                 SettingChoice {
                     key: "stt.mode"
@@ -395,6 +478,10 @@ Window {
                 SettingField {
                     key: "stt.language"
                     label: "Language (en, de, … or auto)"
+                }
+                SettingSwitch {
+                    key: "stt.gpu"
+                    text: "Use the GPU for whisper-cli"
                 }
                 SettingChoice {
                     key: "stt.device"
@@ -442,6 +529,168 @@ Window {
                 SettingSwitch {
                     key: "ui.speechBubbles"
                     text: "Show speech bubbles"
+                }
+            }
+
+            // --- the wake word ------------------------------------------------
+            SettingsPage {
+                Heading {
+                    text: "Wake word"
+                }
+                Note {
+                    text: "A small detector listens for her name on this computer and throws the audio away; nothing is transcribed or kept until it hears her wake phrase. " + assistant.wakeStatus
+                }
+                SettingChoice {
+                    objectName: "listeningChoice"
+                    key: "stt.activation"
+                    label: "Listening"
+                    options: [
+                        { label: "Wake word", value: "wake" },
+                        { label: "Push to talk only", value: "push" },
+                        { label: "Always (transcribe everything)", value: "always" }
+                    ]
+                }
+                Note {
+                    text: "Push to talk works in every mode: bind a key to “nala listen”, e.g. bind = SUPER, N, exec, nala listen."
+                }
+                ActionButton {
+                    visible: !assistant.wakeModelsPresent
+                    text: "Download the wake-word detector (≈190 MB)"
+                    onClicked: {
+                        text = "Downloading…";
+                        assistant.installWakeModels();
+                    }
+                }
+                Note {
+                    visible: !assistant.wakeModelsPresent
+                    text: "openWakeWord's feature models and negative data (CC BY-NC-SA 4.0: fine for personal use). Nothing is uploaded."
+                }
+
+                Heading {
+                    text: "Wake phrases"
+                }
+                Repeater {
+                    model: assistant.wakePhrases
+
+                    RowLayout {
+                        required property var modelData
+
+                        Layout.fillWidth: true
+                        spacing: 6
+                        NalaSwitch {
+                            text: "“" + modelData.phrase + "”" + (modelData.trained ? (modelData.falseWakesPerHour >= 0 ? "  ·  " + modelData.falseWakesPerHour.toFixed(1) + " false/h in testing" : "") : "  ·  not trained")
+                            checked: modelData.enabled
+                            onToggled: assistant.setPhraseEnabled(modelData.phrase, checked)
+                        }
+                        ActionButton {
+                            text: modelData.trained ? "Retrain" : "Train"
+                            enabled: assistant.wakeModelsPresent
+                            onClicked: modelData.samples >= 3 && modelData.trained ? assistant.retrain(modelData.phrase) : trainer.item.begin(modelData.phrase)
+                        }
+                        ActionButton {
+                            text: "×"
+                            visible: modelData.trained || modelData.samples > 0
+                            Accessible.name: "Delete recordings and model"
+                            onClicked: assistant.deleteWakeData(modelData.phrase)
+                        }
+                    }
+                }
+                RowLayout {
+                    spacing: 6
+                    NalaField {
+                        id: newPhrase
+                        Layout.fillWidth: true
+                        placeholderText: "Another phrase, e.g. “computer”"
+                    }
+                    ActionButton {
+                        text: "Add and train"
+                        enabled: newPhrase.text.trim().length > 1 && assistant.wakeModelsPresent
+                        onClicked: {
+                            assistant.setPhraseEnabled(newPhrase.text, true);
+                            trainer.item.begin(newPhrase.text.trim().toLowerCase());
+                            newPhrase.text = "";
+                        }
+                    }
+                }
+                SettingSwitch {
+                    key: "wake.acceptName"
+                    text: "Also wake on “" + assistant.assistantName + "” alone"
+                }
+
+                Heading {
+                    text: "Behaviour"
+                }
+                RowLayout {
+                    LabelText {
+                        text: "Sensitivity"
+                        Layout.preferredWidth: 150
+                    }
+                    NalaSlider {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 1
+                        stepSize: 0.05
+                        value: settings.v("wake.sensitivity")
+                        onMoved: settings.put("wake.sensitivity", value)
+                    }
+                }
+                Note {
+                    text: "Left: fewer accidental wake-ups. Right: hears you more easily."
+                }
+                SettingChoice {
+                    key: "stt.device"
+                    label: "Microphone"
+                    options: [{ label: "Default", value: "" }].concat(assistant.microphones.map(function (name) {
+                        return { label: name, value: name };
+                    }))
+                }
+                SettingChoice {
+                    key: "wake.followUpSec"
+                    label: "Follow-up without her name"
+                    options: [
+                        { label: "Off", value: 0 },
+                        { label: "5 seconds", value: 5 },
+                        { label: "10 seconds", value: 10 },
+                        { label: "15 seconds", value: 15 },
+                        { label: "30 seconds", value: 30 }
+                    ]
+                }
+                SettingSwitch {
+                    key: "wake.chime"
+                    text: "Soft chime when she hears her name"
+                }
+                SettingSwitch {
+                    key: "wake.visual"
+                    text: "She perks up when she hears her name"
+                }
+                SettingSwitch {
+                    key: "wake.bargeIn"
+                    text: "Let her name interrupt her while she talks"
+                }
+                Note {
+                    visible: settings.v("wake.bargeIn") === true
+                    color: theme.colors.error
+                    text: "Without echo cancellation her own voice may wake her. Headphones help."
+                }
+                SettingSwitch {
+                    key: "ui.clickToTalk"
+                    text: "Click her to talk"
+                }
+                RowLayout {
+                    spacing: 6
+                    ActionButton {
+                        objectName: "testWake"
+                        text: assistant.wakeTesting ? "Testing… say it" : "Test wake word"
+                        onClicked: assistant.testWake()
+                    }
+                    ActionButton {
+                        text: "Delete all wake-word recordings"
+                        onClicked: assistant.deleteAllWakeData()
+                    }
+                }
+                WakeMeter {
+                    visible: assistant.wakeTesting || settings.v("developer.debug") === true
+                    Layout.fillWidth: true
                 }
             }
 
@@ -647,6 +896,14 @@ Window {
                     text: "Debug logging (transcripts and prompts)"
                 }
                 Heading {
+                    text: "Wake-word confidence"
+                    visible: settings.v("developer.debug") === true
+                }
+                WakeMeter {
+                    visible: settings.v("developer.debug") === true
+                    Layout.fillWidth: true
+                }
+                Heading {
                     text: "Recent events"
                 }
                 Repeater {
@@ -675,6 +932,70 @@ Window {
         }
     }
 
+    // Teaching her a phrase happens in its own window.
+    Loader {
+        id: trainer
+
+        source: "qrc:/qml/WakeTraining.qml"
+    }
+
+    // The detector's confidence as it listens, against the bar it has to
+    // clear, and a flash when it does.
+    component WakeMeter: ColumnLayout {
+        id: meter
+
+        property real flash: 0
+
+        spacing: 4
+        Connections {
+            target: assistant
+            function onWakeDetected(phrase, score) {
+                meter.flash = 1;
+                fade.restart();
+            }
+        }
+        NumberAnimation {
+            id: fade
+
+            target: meter
+            property: "flash"
+            to: 0
+            duration: 1200
+        }
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 14
+            Rectangle {
+                anchors.fill: parent
+                radius: 4
+                color: theme.colors.card
+            }
+            Rectangle {
+                width: parent.width * Math.min(1, assistant.wakeScore)
+                height: parent.height
+                radius: 4
+                color: assistant.wakeScore >= assistant.wakeThreshold ? theme.colors.accent : theme.colors.muted
+            }
+            Rectangle {
+                x: parent.width * assistant.wakeThreshold - 1
+                width: 2
+                height: parent.height
+                color: theme.colors.text
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: 4
+                color: theme.colors.accent
+                opacity: meter.flash * 0.5
+            }
+        }
+        LabelText {
+            font.pixelSize: 11
+            color: theme.colors.muted
+            text: "confidence " + assistant.wakeScore.toFixed(2) + "   threshold " + assistant.wakeThreshold.toFixed(2) + (meter.flash > 0 ? "   DETECTED" : "")
+        }
+    }
+
     component SettingsPage: Flickable {
         default property alias content: body.data
 
@@ -699,6 +1020,7 @@ Window {
     }
 
     component Note: LabelText {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         wrapMode: Text.Wrap
         color: theme.colors.muted

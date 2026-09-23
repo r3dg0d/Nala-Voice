@@ -1,7 +1,9 @@
 #pragma once
 #include "commandrouter.h"
 #include "desktop.h"
+#include "identity.h"
 #include "llm.h"
+#include "wakeword.h"
 #include "memory.h"
 #include "tools.h"
 
@@ -50,6 +52,33 @@ class Assistant : public QObject {
   Q_PROPERTY(QString model READ model NOTIFY setupChanged)
   Q_PROPERTY(QStringList microphones READ microphones NOTIFY setupChanged)
   Q_PROPERTY(QStringList speakers READ speakers NOTIFY setupChanged)
+  Q_PROPERTY(QStringList capabilities READ capabilities NOTIFY setupChanged)
+  Q_PROPERTY(bool vision READ visionEnabled NOTIFY setupChanged)
+
+  // Who she is.
+  Q_PROPERTY(QString assistantName READ assistantName NOTIFY identityChanged)
+  Q_PROPERTY(bool firstRun READ firstRun NOTIFY identityChanged)
+  // What the microphone is doing, for the indicator on her: "off", "wake"
+  // (only the wake-word detector hears it; nothing is transcribed), "command"
+  // (a request is being taken down), "open" (everything is transcribed), or
+  // "recording" (a training sample).
+  Q_PROPERTY(QString micState READ micState NOTIFY stateChanged)
+
+  // The wake word.
+  Q_PROPERTY(bool wakeReady READ wakeReady NOTIFY wakeChanged)
+  Q_PROPERTY(QString wakeStatus READ wakeStatus NOTIFY wakeChanged)
+  Q_PROPERTY(bool wakeModelsPresent READ wakeModelsPresent NOTIFY wakeChanged)
+  Q_PROPERTY(QVariantList wakePhrases READ wakePhraseList NOTIFY wakeChanged)
+  Q_PROPERTY(double wakeScore READ wakeScore NOTIFY wakeScored)
+  Q_PROPERTY(double wakeThreshold READ wakeThreshold NOTIFY wakeScored)
+  Q_PROPERTY(bool wakeTesting READ wakeTesting NOTIFY wakeChanged)
+
+  // Teaching her a phrase.
+  Q_PROPERTY(QString trainingPhrase READ trainingPhrase NOTIFY trainingChanged)
+  Q_PROPERTY(int trainingSamples READ trainingSamples NOTIFY trainingChanged)
+  Q_PROPERTY(bool trainingSpeech READ trainingSpeech NOTIFY trainingChanged)
+  Q_PROPERTY(bool trainingBusy READ trainingBusy NOTIFY trainingChanged)
+  Q_PROPERTY(QString recordingKind READ recordingKind NOTIFY trainingChanged)
 
 public:
   struct Paths {
@@ -80,6 +109,53 @@ public:
   QString model() const;
   QStringList microphones() const;
   QStringList speakers() const;
+  QStringList capabilities() const { return m_llm->capabilities(); }
+  bool visionEnabled() const;
+
+  const Identity &identity() const { return m_identity; }
+  QString assistantName() const { return m_identity.name; }
+  bool firstRun() const;
+  QString micState() const;
+
+  bool wakeReady() const { return m_wakeReady; }
+  QString wakeStatus() const { return m_wakeStatus; }
+  bool wakeModelsPresent() const;
+  QVariantList wakePhraseList() const;
+  double wakeScore() const { return m_wakeScore; }
+  double wakeThreshold() const { return m_wakeThreshold; }
+  bool wakeTesting() const { return m_wakeTest.isActive(); }
+
+  QString trainingPhrase() const { return m_training.phrase; }
+  int trainingSamples() const { return int(m_training.positives.size()); }
+  bool trainingSpeech() const { return !m_training.speech.isEmpty(); }
+  bool trainingBusy() const { return m_training.busy; }
+  QString recordingKind() const { return m_training.recording; }
+
+  // Wake-word setup, for Preferences and the first-run wizard.
+  Q_INVOKABLE void installWakeModels();
+  Q_INVOKABLE void startTraining(const QString &phrase);
+  // "phrase": one utterance of it; "speech": ordinary talk, until
+  // stopRecording(); "noise": a few seconds of the room.
+  Q_INVOKABLE void recordSample(const QString &kind);
+  Q_INVOKABLE void stopRecording();
+  Q_INVOKABLE void finishTraining();
+  Q_INVOKABLE void cancelTraining();
+  // Train again from the recordings kept for `phrase`.
+  Q_INVOKABLE void retrain(const QString &phrase);
+  Q_INVOKABLE bool deleteWakeData(const QString &phrase);
+  Q_INVOKABLE int deleteAllWakeData();
+  Q_INVOKABLE void setPhraseEnabled(const QString &phrase, bool enabled);
+  // For half a minute detections only light up the meter; nothing happens.
+  Q_INVOKABLE void testWake();
+  Q_INVOKABLE void startMicTest();
+  Q_INVOKABLE void stopMicTest();
+  Q_INVOKABLE void testVoice();
+  Q_INVOKABLE void finishSetup();
+
+  // Profiles: identity, wake phrases, voice and interface; never secrets,
+  // memories or recordings. Return an error, or empty on success.
+  Q_INVOKABLE QString exportProfile(const QString &path) const;
+  Q_INVOKABLE QString importProfile(const QString &path);
 
   // Push to talk: open the microphone for one utterance, or close it if it is
   // already open. Bound to a key through `nala listen`.
@@ -117,6 +193,19 @@ public:
 
   // Test seams.
   void setSpeechBackend(SpeechToText *stt);
+  // Use `backend` for wake words instead of the neural one (tests).
+  void setWakeBackend(wake::WakeWordBackend *backend, bool ready = true);
+  // Audio as if from the microphone: frames for the detector, utterances as
+  // the voice-activity detector would cut them.
+  void hearAudio(const QVector<int16_t> &samples16k);
+  void hearUtterance(const QByteArray &pcm16k) { onUtterance(pcm16k); }
+  // Developer mode: play a recording into the microphone path in real time,
+  // as if it had been said aloud. Returns an error, or empty.
+  QString hearFile(const QString &path);
+  bool armed() const { return m_armed; }
+  bool followingUp() const { return m_followUp.isActive(); }
+  bool speakingForTest() const { return m_speaking; }
+  void setSpeakingForTest(bool speaking);
   void hearForTest(const QString &transcript) { onTranscript(transcript, 0); }
   QJsonArray history() const { return m_history; }
   // Run a tool exactly as the model would, permission checks included.
@@ -136,6 +225,17 @@ signals:
   void timelineRequested();
   // Something she said, for the log window and tests.
   void said(const QString &text);
+  void identityChanged();
+  // Heard her wake phrase: react now, before anything else happens.
+  void wakeDetected(const QString &phrase, double score);
+  void wakeChanged();
+  void wakeScored();
+  void trainingChanged();
+  void trainingSample(const QString &kind, int index, bool ok,
+                      const QString &message);
+  void trainingFinished(bool ok, const QString &message);
+  void wakeModelsInstalled(bool ok, const QString &message);
+  void setupRequested();
 
 private:
   void setState(const QString &state);
@@ -145,6 +245,15 @@ private:
 
   // Hearing.
   void onUtterance(const QByteArray &pcm16k);
+  void onFrames(const QVector<int16_t> &samples);
+  void onWake(const wake::Detection &detection);
+  bool wakeMode() const; // the neural detector decides who is addressed
+  void reloadWake();
+  void arm(int ms);
+  void disarm();
+  void chime();
+  void trainOn(const QString &phrase, const QVector<wake::Clip> &positives,
+               const QVector<wake::Clip> &negatives);
   void onTranscript(const QString &text, qint64 ms);
   bool continuous() const;
   void openMicrophone();
@@ -181,6 +290,28 @@ private:
   bool m_triedServer = false;
   FishSpeech *m_fish = nullptr;
   CommandRouter m_router;
+  Identity m_identity;
+  std::unique_ptr<wake::WakeWordBackend> m_ownedWake;
+  wake::WakeWordBackend *m_wake = nullptr;
+  bool m_wakeReady = false;
+  QString m_wakeStatus;
+  double m_wakeScore = 0.0, m_wakeThreshold = 0.0;
+  bool m_armed = false;     // woken: the next utterance is for her
+  bool m_fromWake = false;  // the utterance in hand followed a wake
+  QTimer m_armTimer;
+  QTimer m_wakeTest;
+  QTimer m_unloadTimer;
+  bool m_micTest = false;
+  struct Training {
+    QString phrase;
+    QVector<wake::Clip> positives;
+    wake::Clip speech, noise;
+    QString recording; // what is being recorded now, if anything
+    wake::Clip buffer;
+    bool busy = false;
+    bool micWasOpen = false;
+  } m_training;
+  QTimer m_recordTimer;
   ToolRegistry m_tools;
   desktop::AppIndex m_apps;
   std::function<void(const QString &)> m_companion;
@@ -196,7 +327,7 @@ private:
   QTimer m_bubbleTimer;
   QTimer m_errorTimer;
   QTimer m_listenTimeout;
-  QTimer m_followUp;     // after "hey Nala", a moment to say the rest
+  QTimer m_followUp;     // after waking or answering: no wake phrase needed
   QTimer m_questionTimer;
   bool m_pushToTalk = false; // the microphone is open for one utterance
   bool m_transcribing = false;
@@ -227,6 +358,8 @@ private:
   bool m_synthesizing = false;
   bool m_speaking = false;
   bool m_voiceBroken = false;
+  bool m_followAfter = false; // what is being said is an answer
+  bool m_chiming = false;     // the speaker is playing the wake chime
 
   // Where the last screenshot handed to the model came from, so its pixel
   // coordinates can be turned back into the desktop's.

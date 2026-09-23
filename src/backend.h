@@ -81,6 +81,7 @@ public:
   Q_INVOKABLE void openSettings();
   Q_INVOKABLE void closeSettings();
   Q_INVOKABLE void openTimeline();
+  Q_INVOKABLE void openSetup();
   Q_INVOKABLE void quit();
   Q_INVOKABLE void command(const QString &name);
   QString status() const;
@@ -119,6 +120,7 @@ signals:
   void settingsCloseRequested();
   void bubbleMoved();
   void timelineRequested();
+  void setupRequested();
 
 private:
   void load();

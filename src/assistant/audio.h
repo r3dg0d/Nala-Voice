@@ -34,6 +34,9 @@ public:
   void inject(const QVector<int16_t> &samples16k);
 
 signals:
+  // Every block of 16 kHz mono audio as it arrives, for the wake-word
+  // detector. Not kept anywhere.
+  void frames(const QVector<int16_t> &samples16k);
   void speechStarted();
   void utterance(const QByteArray &pcm16k);
   void levelChanged(double level);

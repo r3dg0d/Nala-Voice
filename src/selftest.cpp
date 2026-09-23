@@ -1287,6 +1287,18 @@ int runSelfTest(QApplication &app, Backend &backend, Mascot &mascot,
   if (settings && !captureDir.isEmpty())
     settings->grabWindow().save(captureDir + "/preferences.png");
 
+  // --- the assistant's other windows ---------------------------------------
+  // Opened so that the "no QML warnings" check below covers them too.
+  backend.openSetup();
+  backend.openTimeline();
+  QTest::qWait(400);
+  check(window->findChild<QQuickWindow *>("setupWindow") != nullptr,
+        "the setup wizard opens");
+  check(window->findChild<QQuickWindow *>("timelineWindow") != nullptr,
+        "the memory timeline opens");
+  check(window->findChild<QQuickWindow *>("wakeTrainingWindow") != nullptr,
+        "the wake-word training window exists");
+
   // --- autostart -----------------------------------------------------------
   const bool hadAutostart = backend.startAtLogin();
   backend.setStartAtLogin(true);

@@ -60,24 +60,6 @@ QString dayLabel(const QDate &date) {
   return QLocale().toString(date, QLocale::LongFormat);
 }
 
-// The one place the personality is written down.
-const char *kPersona =
-    "You are Nala, a small, friendly companion who lives on the user's Linux "
-    "desktop (Hyprland) as an animated blob with big eyes. You talk the way a "
-    "good friend does: warm, brief and direct. Your replies are spoken aloud, "
-    "so use one to three short sentences, plain words, and no markdown, "
-    "lists, code blocks or emoji unless asked.\n\n"
-    "You can only affect the computer through the tools you are given. Never "
-    "claim to have opened, closed, typed, written, sent or remembered "
-    "anything unless a tool result says it succeeded. If a tool fails or the "
-    "user declines, say so plainly and do not try to get around it. Some "
-    "tools pause to ask the user for permission themselves; do not ask again "
-    "in text before calling them. Never submit, send, post, buy or delete "
-    "without the user having clearly asked for it.\n\n"
-    "For questions about what the user did, saw or worked on before, search "
-    "memory first and answer from what you find, saying when you found "
-    "nothing. Prefer real references -- file paths, URLs, repositories -- "
-    "over descriptions of screenshots.";
 
 } // namespace
 
@@ -96,8 +78,11 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   if (testing)
     m_memory->setOffline(true);
 
+  m_memory->setVisionCheck([this] { return visionEnabled(); });
+
   m_mic = new Microphone(this);
   connect(m_mic, &Microphone::utterance, this, &Assistant::onUtterance);
+  connect(m_mic, &Microphone::frames, this, &Assistant::onFrames);
   connect(m_mic, &Microphone::levelChanged, this, [this](double level) {
     m_micLevel = level;
     emit levelsChanged();
@@ -120,10 +105,20 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
     emit levelsChanged();
   });
   connect(m_speaker, &Speaker::finished, this, [this] {
+    if (m_chiming) {
+      m_chiming = false;
+      return;
+    }
     if (!m_synthesizing)
       speakNext();
   });
   connect(m_speaker, &Speaker::failed, this, [this](const QString &why) {
+    if (m_chiming) {
+      // A chime that could not play is not a reason to stop talking.
+      m_chiming = false;
+      m_log->trace("wake", "chime-failed", {{"reason", why}});
+      return;
+    }
     m_log->record("error", "speaker", {{"reason", why}});
     m_voiceBroken = true;
     m_speech.clear();
@@ -213,6 +208,24 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
     answer(false);
   });
 
+  // The wake-word detector: small, on the CPU, fed straight from the
+  // microphone. Its models load after the window is up.
+  m_ownedWake = std::make_unique<wake::NeuralBackend>(
+      qEnvironmentVariable("NALA_WAKE_FEATURES"));
+  setWakeBackend(m_ownedWake.get(), false);
+  m_armTimer.setSingleShot(true);
+  connect(&m_armTimer, &QTimer::timeout, this, &Assistant::disarm);
+  m_wakeTest.setSingleShot(true);
+  m_wakeTest.setInterval(30000);
+  connect(&m_wakeTest, &QTimer::timeout, this, &Assistant::wakeChanged);
+  m_unloadTimer.setSingleShot(true);
+  connect(&m_unloadTimer, &QTimer::timeout, this, [this] {
+    m_log->record("llm", "unload-idle", {{"model", m_llm->model()}});
+    m_llm->unload();
+  });
+  m_recordTimer.setSingleShot(true);
+  connect(&m_recordTimer, &QTimer::timeout, this, &Assistant::stopRecording);
+
   connect(m_settings, &AssistantSettings::changed, this,
           &Assistant::applySettings);
   connect(m_memory, &ScreenMemory::changed, this, &Assistant::stateChanged);
@@ -220,11 +233,16 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   registerTools();
 
   if (!testing) {
+    // Lightest first: the pet is already up; now the wake word and the
+    // microphone, then the application list and the (slower) health checks.
     QTimer::singleShot(0, this, [this] {
-      m_apps.scan();
-      diagnose();
+      reloadWake();
       if (continuous())
         openMicrophone();
+      m_apps.scan();
+      diagnose();
+      if (firstRun())
+        emit setupRequested();
     });
   }
 }
@@ -254,7 +272,8 @@ void Assistant::settle() {
     setState(QStringLiteral("acting"));
   else if (m_thinking || m_transcribing)
     setState(QStringLiteral("thinking"));
-  else if (m_pushToTalk || m_followUp.isActive() || !m_question.isEmpty())
+  else if (m_pushToTalk || m_armed || m_followUp.isActive() ||
+           !m_question.isEmpty() || !m_training.recording.isEmpty())
     setState(QStringLiteral("listening"));
   else if (m_asleep)
     setState(QStringLiteral("sleeping"));
@@ -265,6 +284,15 @@ void Assistant::settle() {
 void Assistant::applySettings(const QString &key) {
   m_log->setDebug(m_settings->flag("developer.debug"));
 
+  const QString oldName = m_identity.name;
+  const QStringList oldPhrases = m_identity.wakePhrases();
+  m_identity = Identity::from(*m_settings);
+  if (m_identity.name != oldName || m_router.name().isEmpty())
+    m_router.setName(m_identity.name);
+  if (key.isEmpty() || key.startsWith("identity.") || key.startsWith("wake.") ||
+      key.startsWith("tts."))
+    emit identityChanged();
+
   LlmClient::Config llm;
   llm.endpoint = QUrl(m_settings->string("llm.endpoint"));
   llm.model = m_settings->string("llm.model");
@@ -272,14 +300,31 @@ void Assistant::applySettings(const QString &key) {
   llm.temperature = m_settings->number("llm.temperature");
   llm.maxTokens = m_settings->integer("llm.maxTokens");
   llm.timeoutSec = m_settings->integer("llm.timeoutSec");
+  llm.preferred = m_settings->list("llm.preferred");
+  llm.thinking = m_settings->string("llm.thinking");
   m_llm->configure(llm);
   m_memoryLlm->configure(llm);
 
   m_whisperServer->setUrl(QUrl(m_settings->string("stt.serverUrl")));
   m_whisperCli->configure(m_settings->string("stt.binary"),
                           m_settings->string("stt.model"));
-  m_whisperServer->setPrompt(m_settings->string("stt.prompt"));
-  m_whisperCli->setPrompt(m_settings->string("stt.prompt"));
+  const QString prompt = m_settings->string("stt.prompt").trimmed().isEmpty()
+                             ? m_identity.recognitionPrompt()
+                             : m_settings->string("stt.prompt");
+  m_whisperServer->setPrompt(prompt);
+  m_whisperCli->setPrompt(prompt);
+  m_whisperCli->setGpu(m_settings->flag("stt.gpu"));
+  m_followUp.setInterval(std::max(1, m_settings->integer("wake.followUpSec")) * 1000);
+  m_unloadTimer.setInterval(std::max(1, m_settings->integer("llm.unloadIdleMin")) *
+                            60 * 1000);
+  if (m_wake) {
+    m_wake->setSensitivity(m_settings->number("wake.sensitivity"));
+    m_wake->setConfirmation(1, m_settings->integer("wake.cooldownMs"));
+  }
+  if ((key.startsWith("wake.phrases") || key == "wake.acceptName" ||
+       key == "identity.name") &&
+      m_identity.wakePhrases() != oldPhrases)
+    reloadWake();
   if (key.startsWith("stt."))
     m_serverDead = false; // worth another try with the new settings
   m_fish->configure(QUrl(m_settings->string("tts.endpoint")),
@@ -289,6 +334,8 @@ void Assistant::applySettings(const QString &key) {
   if (key.startsWith("tts."))
     m_voiceBroken = false;
 
+  if (key == "stt.activation")
+    reloadWake();
   if (key == "stt.activation" || key == "stt.enabled" || key == "stt.device") {
     m_deaf = false;
     if (continuous())
@@ -306,14 +353,46 @@ QString Assistant::model() const { return m_llm->model(); }
 QStringList Assistant::microphones() const { return Microphone::devices(); }
 QStringList Assistant::speakers() const { return Speaker::devices(); }
 
+bool Assistant::visionEnabled() const {
+  const QString mode = m_settings->string("llm.vision");
+  return mode == QLatin1String("on") ||
+         (mode == QLatin1String("auto") &&
+          m_llm->capabilities().contains(QStringLiteral("vision")));
+}
+
+bool Assistant::firstRun() const {
+  return !m_testing && !m_settings->flag("identity.setupDone");
+}
+
+bool Assistant::wakeMode() const {
+  return m_wakeReady && m_settings->string("stt.activation") == "wake";
+}
+
+QString Assistant::micState() const {
+  if (!m_mic->active())
+    return QStringLiteral("off");
+  if (!m_training.recording.isEmpty() || m_micTest)
+    return QStringLiteral("recording");
+  if (m_pushToTalk || m_armed || m_followUp.isActive() || !m_question.isEmpty())
+    return QStringLiteral("command");
+  if (wakeMode())
+    return QStringLiteral("wake");
+  return QStringLiteral("open");
+}
+
 // --- hearing -------------------------------------------------------------------
 
 bool Assistant::continuous() const {
-  return m_settings->flag("stt.enabled") && !m_deaf && !m_testing &&
+  return m_settings->flag("stt.enabled") && !m_deaf &&
          m_settings->string("stt.activation") != "push";
 }
 
 void Assistant::openMicrophone() {
+  if (m_testing) {
+    // Tests feed audio in themselves; the real microphone stays closed.
+    emit stateChanged();
+    return;
+  }
   audio::VoiceActivity::Config vad;
   vad.thresholdDb = m_settings->number("stt.vadThresholdDb");
   vad.silenceMs = m_settings->integer("stt.silenceMs");
@@ -370,6 +449,42 @@ void Assistant::setSpeechBackend(SpeechToText *stt) {
 }
 
 void Assistant::onUtterance(const QByteArray &pcm16k) {
+  // A training recording is not a request.
+  if (!m_training.recording.isEmpty()) {
+    if (m_training.recording == QLatin1String("phrase")) {
+      m_recordTimer.stop();
+      const wake::Clip clip(reinterpret_cast<const int16_t *>(pcm16k.constData()),
+                            reinterpret_cast<const int16_t *>(pcm16k.constData()) +
+                                pcm16k.size() / 2);
+      const wake::Clip trimmed = wake::augment::trim(clip);
+      const double seconds = double(trimmed.size()) / wake::kRate;
+      m_training.recording.clear();
+      if (seconds < 0.3 || seconds > 3.5) {
+        emit trainingSample("phrase", int(m_training.positives.size()), false,
+                            seconds < 0.3 ? tr("That was too short -- try again.")
+                                          : tr("That was too long -- just the phrase, please."));
+      } else {
+        m_training.positives << clip;
+        emit trainingSample("phrase", int(m_training.positives.size()) - 1, true,
+                            tr("Got it."));
+      }
+      emit trainingChanged();
+      settle();
+    }
+    return;
+  }
+  if (m_micTest)
+    return;
+  // In wake-word mode nobody has spoken to her unless the detector said so:
+  // the audio is dropped here, never transcribed.
+  if (wakeMode() && !m_pushToTalk && !m_armed && !m_followUp.isActive() &&
+      m_question.isEmpty()) {
+    m_log->trace("stt", "unaddressed-audio-dropped");
+    return;
+  }
+  m_fromWake = m_armed;
+  if (m_armed)
+    disarm(); // this utterance is the one she woke up for
   if (m_pushToTalk) {
     m_pushToTalk = false;
     m_listenTimeout.stop();
@@ -409,8 +524,11 @@ void Assistant::onTranscript(const QString &text, qint64 ms) {
 void Assistant::ask(const QString &text) { handle(text, false); }
 
 void Assistant::handle(const QString &text, bool spoken) {
-  const Route route =
-      m_router.route(text, m_settings->list("stt.wakePhrases"));
+  const bool fromWake = spoken && m_fromWake;
+  m_fromWake = false;
+  const Route route = fromWake
+                          ? m_router.routeAfterWake(text, m_identity.addressForms())
+                          : m_router.route(text, m_identity.addressForms());
   if (route.text.isEmpty() && !route.addressed)
     return; // silence, or whisper's "[BLANK_AUDIO]"
 
@@ -420,17 +538,24 @@ void Assistant::handle(const QString &text, bool spoken) {
     if (m_speaking && route.action != QLatin1String("assistant.stop"))
       return;
     const bool conversation = m_followUp.isActive() || !m_question.isEmpty();
-    // Pausing screen memory is honoured whoever says it and however her name
-    // came out: stopping is always the safe direction.
-    if (m_settings->string("stt.activation") == "wake" && !route.addressed &&
-        !conversation && route.action != QLatin1String("memory.pause")) {
+    // Without a trained detector, wake mode falls back to listening for her
+    // wake phrases in what whisper heard. Only the enabled phrases count:
+    // renaming her retires the old name. Pausing screen memory is honoured
+    // whoever says it and however her name came out: stopping is always the
+    // safe direction.
+    bool addressed = false;
+    CommandRouter::stripWake(CommandRouter::normalise(text),
+                             m_identity.wakePhrases(), &addressed);
+    if (!wakeMode() && m_settings->string("stt.activation") == "wake" &&
+        !addressed && !conversation &&
+        route.action != QLatin1String("memory.pause")) {
       m_log->trace("stt", "not-addressed");
       return;
     }
   }
   if (route.addressed && route.text.isEmpty()) {
-    // "Hey Nala" on its own: she is listening for the rest.
-    m_followUp.start();
+    // Just her name: she is listening for the rest.
+    m_followUp.start(std::max(8000, m_followUp.interval()));
     m_heard.clear();
     say(QStringLiteral("Yes?"), false);
     settle();
@@ -694,7 +819,7 @@ void Assistant::runFast(const Route &route) {
 }
 
 QSet<QString> Assistant::categories() const {
-  QSet<QString> on = {"memory", "nala"};
+  QSet<QString> on = {"memory", "nala", "system"};
   if (!m_settings->flag("agent.enabled"))
     return on;
   on << "window" << "apps";
@@ -710,16 +835,10 @@ QSet<QString> Assistant::categories() const {
 }
 
 QJsonObject Assistant::systemMessage() const {
-  QString prompt = m_settings->string("llm.systemPrompt").trimmed();
-  if (prompt.isEmpty())
-    prompt = QString::fromLatin1(kPersona);
-  prompt += QStringLiteral("\n\nIt is %1. Screen memory is %2. You %3 see "
-                           "images.")
-                .arg(QLocale().toString(QDateTime::currentDateTime(),
-                                        QStringLiteral("dddd d MMMM yyyy, h:mm AP")),
-                     m_memory->status(),
-                     m_settings->flag("llm.vision") ? "can" : "cannot");
-  return {{"role", "system"}, {"content", prompt}};
+  return {{"role", "system"},
+          {"content", m_identity.systemPrompt(QDateTime::currentDateTime(),
+                                              m_memory->status(), visionEnabled(),
+                                              m_settings->string("llm.systemPrompt"))}};
 }
 
 void Assistant::think(const QString &text) {
@@ -755,6 +874,8 @@ void Assistant::injectModelReply(const LlmReply &reply) { onModelReply(reply); }
 
 void Assistant::onModelReply(const LlmReply &reply) {
   m_thinking = false;
+  if (m_settings->integer("llm.unloadIdleMin") > 0)
+    m_unloadTimer.start();
   m_turnMessages.append(reply.message);
   m_log->record("llm", "reply",
                 {{"tools", int(reply.toolCalls.size())},
@@ -936,8 +1057,11 @@ void Assistant::stop() {
   m_speaker->stop();
   m_speech.clear();
   m_synthesizing = false;
+  if (m_speaking && m_wake)
+    m_wake->resume(m_settings->integer("wake.postSpeechMs"));
   m_speaking = false;
   m_followUp.stop();
+  disarm();
   m_errorTimer.stop();
   if (m_onAnswer)
     answer(false);
@@ -964,12 +1088,20 @@ void Assistant::say(const QString &text, bool speak) {
   m_speaker->stop();
   m_speech.clear();
   m_synthesizing = false;
+  // An answer invites a follow-up without the wake phrase.
+  m_followAfter = speak;
   if (!voice) {
     m_speaking = false;
+    if (m_followAfter)
+      finishSpeaking();
     settle();
     return;
   }
   m_speech = splitSentences(text);
+  // Her own voice must not wake her. Without echo cancellation the only
+  // safe thing is not to listen for the wake phrase while she talks.
+  if (m_wake && !m_settings->flag("wake.bargeIn"))
+    m_wake->pause();
   m_speaking = true;
   settle();
   speakNext();
@@ -987,8 +1119,17 @@ void Assistant::speakNext() {
 void Assistant::finishSpeaking() {
   const bool was = m_speaking;
   m_speaking = false;
-  if (was)
+  if (was) {
     m_bubbleTimer.start(4000);
+    // Listen for the wake phrase again once the room has had a moment to
+    // go quiet.
+    if (m_wake)
+      m_wake->resume(m_settings->integer("wake.postSpeechMs"));
+  }
+  // Continuing the conversation: for a while, no need to say her name.
+  if (m_followAfter && continuous() && m_settings->integer("wake.followUpSec") > 0)
+    m_followUp.start();
+  m_followAfter = false;
   settle();
   // A question asked out loud wants an answer out loud.
   if (was && !m_question.isEmpty() && !continuous() &&
@@ -1183,18 +1324,24 @@ void Assistant::diagnose(std::function<void(QString)> done) {
   // Asynchronous checks first, so the synchronous ones overlap with them.
   report->pending = 4;
 
-  m_llm->listModels([this, add, finish](const QStringList &ids,
-                                        const QString &error) {
-    const QString using_ = m_settings->string("llm.model").isEmpty()
-                               ? ids.value(0)
-                               : m_settings->string("llm.model");
-    add(QStringLiteral("language model"), !ids.isEmpty(),
-        ids.isEmpty() ? QStringLiteral("%1 at %2")
-                            .arg(error, m_settings->string("llm.endpoint"))
-                      : QStringLiteral("%1 (%2 available at %3)")
-                            .arg(using_)
-                            .arg(ids.size())
-                            .arg(m_settings->string("llm.endpoint")));
+  m_llm->probe([this, add, finish](const QString &error) {
+    const QString model = m_llm->model();
+    const bool preferred =
+        model.contains(QStringLiteral("flash-next"), Qt::CaseInsensitive);
+    add(QStringLiteral("language model"), !model.isEmpty(),
+        model.isEmpty()
+            ? QStringLiteral("%1 at %2")
+                  .arg(LlmClient::explain(error), m_settings->string("llm.endpoint"))
+            : QStringLiteral("%1 via %2 (%3)%4")
+                  .arg(model,
+                       m_llm->server() == LlmClient::Server::Ollama
+                           ? QStringLiteral("Ollama")
+                           : m_settings->string("llm.endpoint"),
+                       m_llm->capabilities().join(", "),
+                       preferred ? QString()
+                                 : QStringLiteral(" -- Qwen3.8-Flash-Next is "
+                                                  "recommended; see docs/AI.md")));
+    emit setupChanged();
     finish();
   });
 
@@ -1247,6 +1394,26 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     finish();
   });
 
+  add(QStringLiteral("wake word"),
+      m_wakeReady || m_settings->string("stt.activation") != "wake",
+      m_wakeStatus.isEmpty() ? QStringLiteral("not set up") : m_wakeStatus, true);
+  {
+    const desktop::Result gpu = desktop::run(
+        "nvidia-smi",
+        {"--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits"},
+        3000);
+    if (gpu.ok) {
+      const QStringList f = QString::fromUtf8(gpu.out).trimmed().split(", ");
+      add(QStringLiteral("GPU"), true,
+          f.size() >= 3 ? QStringLiteral("%1: %2 of %3 GB in use")
+                              .arg(f[0])
+                              .arg(f[1].toDouble() / 1024.0, 0, 'f', 1)
+                              .arg(f[2].toDouble() / 1024.0, 0, 'f', 1)
+                        : QString::fromUtf8(gpu.out).trimmed(),
+          true);
+    }
+  }
+
   const QStringList mics = Microphone::devices();
   add(QStringLiteral("microphone"), !mics.isEmpty(),
       mics.isEmpty() ? QStringLiteral("none found") : mics.join(", "));
@@ -1297,7 +1464,7 @@ void Assistant::registerTools() {
       "click coordinates refer to. Only useful when you can see images.",
       object({}), Risk::Safe, "computer", nullptr, nullptr,
       [this](const QJsonObject &, Tool::Done done) {
-        if (!m_settings->flag("llm.vision")) {
+        if (!visionEnabled()) {
           done(fail("Vision is switched off, so a screenshot would not help."));
           return;
         }
@@ -1882,6 +2049,53 @@ void Assistant::registerTools() {
       [this](const QJsonObject &a, Tool::Done done) {
         done(forgetMemory(a.value("id").toInteger()) ? ok()
                                                       : fail("No such memory."));
+      }});
+
+  // --- the machine ---
+  m_tools.add(Tool{
+      "system.gpu",
+      "What is using the GPU: its name, memory in use and free, and the "
+      "processes holding it.",
+      object({}), Risk::Safe, "system", nullptr, nullptr,
+      [this](const QJsonObject &, Tool::Done done) {
+        const desktop::Result gpus = desktop::run(
+            "nvidia-smi",
+            {"--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu",
+             "--format=csv,noheader,nounits"},
+            4000);
+        if (!gpus.ok) {
+          done(fail("No NVIDIA GPU information is available (nvidia-smi: " +
+                    gpus.error + ")."));
+          return;
+        }
+        QJsonArray list;
+        for (const QString &line : QString::fromUtf8(gpus.out).split('\n', Qt::SkipEmptyParts)) {
+          const QStringList f = line.split(", ");
+          if (f.size() < 5)
+            continue;
+          list.append(QJsonObject{{"name", f[0]},
+                                  {"memoryUsedMiB", f[1].toInt()},
+                                  {"memoryTotalMiB", f[2].toInt()},
+                                  {"memoryFreeMiB", f[2].toInt() - f[1].toInt()},
+                                  {"utilisationPercent", f[3].toInt()},
+                                  {"temperatureC", f[4].toInt()}});
+        }
+        QJsonArray processes;
+        const desktop::Result apps = desktop::run(
+            "nvidia-smi",
+            {"--query-compute-apps=pid,process_name,used_memory",
+             "--format=csv,noheader,nounits"},
+            4000);
+        for (const QString &line : QString::fromUtf8(apps.out).split('\n', Qt::SkipEmptyParts)) {
+          const QStringList f = line.split(", ");
+          if (f.size() >= 3)
+            processes.append(QJsonObject{{"pid", f[0].toInt()},
+                                         {"process", QFileInfo(f[1]).fileName()},
+                                         {"memoryMiB", f[2].toInt()}});
+        }
+        done(ok({{"gpus", list},
+                 {"processes", processes},
+                 {"assistantModel", m_llm->model()}}));
       }});
 
   // --- herself ---

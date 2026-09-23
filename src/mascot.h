@@ -108,10 +108,12 @@ public:
   // Reaction squash, with the idle swell riding on top of it.
   // Speech rides on top of both: she swells a little with her own voice.
   qreal squashX() const {
-    return m_squashX * (1.0 + kBreatheDepth * m_breathe) * (1.0 - 0.05 * m_voice);
+    return m_squashX * (1.0 + kBreatheDepth * m_breathe) *
+           (1.0 - 0.05 * m_expressive * m_voice);
   }
   qreal squashY() const {
-    return m_squashY * (1.0 - kBreatheDepth * m_breathe) * (1.0 + 0.08 * m_voice);
+    return m_squashY * (1.0 - kBreatheDepth * m_breathe) *
+           (1.0 + 0.08 * m_expressive * m_voice);
   }
   qreal bodyScale() const { return m_scale; }
   // The settling lean. The thinking tumble is not part of this: it is a
@@ -147,8 +149,12 @@ public:
   qreal gazeYaw() const { return m_yaw; }
   qreal gazePitch() const { return m_pitch; }
   // Listening opens her eyes a little wider.
-  qreal eyeWidth() const { return m_eyeWidth * (1.0 + 0.2 * m_listen); }
-  qreal eyeHeight() const { return m_eyeHeight * (1.0 + 0.08 * m_listen); }
+  qreal eyeWidth() const {
+    return m_eyeWidth * (1.0 + 0.2 * m_expressive * m_listen);
+  }
+  qreal eyeHeight() const {
+    return m_eyeHeight * (1.0 + 0.08 * m_expressive * m_listen);
+  }
   qreal eyeRound() const { return m_eyeRound; }
 
   // Height of each eye as actually drawn, lid included.
@@ -237,6 +243,12 @@ public:
   bool eyesCovered() const { return m_coverHold > 0.0; }
   // Nod off now rather than waiting to.
   Q_INVOKABLE void sleep();
+  // Heard her name: perk up at once -- a little hop, eyes wide, looking out
+  // -- before anything else has happened. Driven straight from the
+  // wake-word detector, so it never waits on the recogniser or the model.
+  Q_INVOKABLE void perk();
+  // 0.5 subdued, 1 normal, 1.5 lively: scales her assistant reactions.
+  void setExpressiveness(qreal scale) { m_expressive = qBound(0.25, scale, 2.0); }
 
   // Drop everything and return to the idle pose immediately: no rings, no
   // badge, no squash, eyes at rest. Backs the `rest` command.
@@ -354,6 +366,7 @@ private:
   qreal m_voice = 0.0, m_voiceTarget = 0.0;
   qreal m_ringFloor = 0.0; // rings held up while she works
   qreal m_coverHold = 0.0, m_coverLid = 0.0;
+  qreal m_expressive = 1.0;
 
   QRandomGenerator m_random;
 };

@@ -35,15 +35,27 @@ const QVector<Spec> &specs() {
       // because it is the one most people already have running.
       {"llm.enabled", Kind::Bool, true},
       {"llm.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:11434/v1")},
-      // Empty means "whatever the server lists first", so nothing here
-      // presumes a particular release.
+      // Empty means "the best the server has": the first entry of
+      // llm.preferred it offers, else whatever it lists first. Qwen3.8
+      // Flash-Next is Nala's recommended brain; see docs/AI.md for what it
+      // needs to run.
       {"llm.model", Kind::String, QString()},
+      {"llm.preferred", Kind::List,
+       QStringList{"qwen3.8-flash-next", "qwen3.8-omni", "qwen3-omni",
+                   "qwen3.8", "qwen3", "qwen"}},
+      // Thinking models reason before answering; for a voice that costs
+      // seconds. Off by default.
+      {"llm.thinking", Kind::Choice, QStringLiteral("off"), 0, 0,
+       {"off", "on", "server"}},
+      {"llm.unloadIdleMin", Kind::Int, 0, 0, 1440},
       {"llm.apiKey", Kind::String, QString()},
       {"llm.temperature", Kind::Real, 0.6, 0.0, 2.0},
       {"llm.maxTokens", Kind::Int, 800, 16, 32768},
       {"llm.contextTurns", Kind::Int, 8, 0, 50},
       {"llm.timeoutSec", Kind::Int, 90, 5, 600},
-      {"llm.vision", Kind::Bool, false},
+      // "auto" asks the server what the model can do, where it can say.
+      {"llm.vision", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "on", "off"}},
       {"llm.toolCalling", Kind::Bool, true},
       {"llm.systemPrompt", Kind::String, QString()},
 
@@ -59,12 +71,10 @@ const QVector<Spec> &specs() {
       {"stt.device", Kind::String, QString()},
       {"stt.activation", Kind::Choice, QStringLiteral("push"), 0, 0,
        {"push", "wake", "always"}},
-      {"stt.wakePhrases", Kind::List,
-       QStringList{"hey nala", "okay nala", "ok nala", "hi nala", "nala"}},
-      // Primes the recogniser with her name and the commands that matter.
-      {"stt.prompt", Kind::String,
-       QStringLiteral("Hey Nala. Pause screen memory. Resume screen memory. "
-                      "Stop listening. Open settings.")},
+      // Primes the recogniser. Empty: her name, her wake phrases and the
+      // commands that matter, from her identity.
+      {"stt.prompt", Kind::String, QString()},
+      {"stt.gpu", Kind::Bool, true},
       {"stt.vadThresholdDb", Kind::Real, 9.0, 3.0, 30.0},
       {"stt.silenceMs", Kind::Int, 700, 200, 3000},
       {"stt.maxUtteranceSec", Kind::Int, 20, 3, 60},
@@ -115,7 +125,32 @@ const QVector<Spec> &specs() {
       {"privacy.excludedApps", Kind::List, kExcludedApps},
       {"privacy.excludedTitles", Kind::List, QStringList()},
 
+      // Who she is.
+      {"identity.name", Kind::String, QStringLiteral("Nala")},
+      {"identity.personality", Kind::Choice, QStringLiteral("friendly"), 0, 0,
+       {"friendly", "playful", "professional", "minimal", "custom"}},
+      {"identity.customPersonality", Kind::String, QString()},
+      {"identity.responseLength", Kind::Choice, QStringLiteral("normal"), 0, 0,
+       {"short", "normal", "detailed"}},
+      {"identity.expressiveness", Kind::Choice, QStringLiteral("normal"), 0, 0,
+       {"low", "normal", "high"}},
+      {"identity.setupDone", Kind::Bool, false},
+
+      // What wakes her. Phrases are independent of her name: "computer"
+      // works as well as "hey nala".
+      {"wake.phrases", Kind::List, QStringList{"hey nala"}},
+      {"wake.acceptName", Kind::Bool, false},
+      {"wake.sensitivity", Kind::Real, 0.5, 0.0, 1.0},
+      {"wake.chime", Kind::Bool, true},
+      {"wake.visual", Kind::Bool, true},
+      {"wake.cooldownMs", Kind::Int, 2000, 0, 10000},
+      {"wake.postSpeechMs", Kind::Int, 800, 0, 5000},
+      {"wake.bargeIn", Kind::Bool, false},
+      // After she answers, how long a follow-up needs no wake phrase.
+      {"wake.followUpSec", Kind::Int, 10, 0, 120},
+
       {"ui.speechBubbles", Kind::Bool, true},
+      {"ui.clickToTalk", Kind::Bool, false},
       {"developer.debug", Kind::Bool, false},
   };
   return table;
