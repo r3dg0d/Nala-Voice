@@ -106,8 +106,13 @@ public:
   qreal dotsShrink() const { return m_dotsShrink; }
   qreal dotsPhase() const { return m_dotsPhase; }
   // Reaction squash, with the idle swell riding on top of it.
-  qreal squashX() const { return m_squashX * (1.0 + kBreatheDepth * m_breathe); }
-  qreal squashY() const { return m_squashY * (1.0 - kBreatheDepth * m_breathe); }
+  // Speech rides on top of both: she swells a little with her own voice.
+  qreal squashX() const {
+    return m_squashX * (1.0 + kBreatheDepth * m_breathe) * (1.0 - 0.05 * m_voice);
+  }
+  qreal squashY() const {
+    return m_squashY * (1.0 - kBreatheDepth * m_breathe) * (1.0 + 0.08 * m_voice);
+  }
   qreal bodyScale() const { return m_scale; }
   // The settling lean. The thinking tumble is not part of this: it is a
   // rotation in three dimensions and lives in bodyTransform().
@@ -141,8 +146,9 @@ public:
   qreal eyeRightAngle() const { return m_right.angle; }
   qreal gazeYaw() const { return m_yaw; }
   qreal gazePitch() const { return m_pitch; }
-  qreal eyeWidth() const { return m_eyeWidth; }
-  qreal eyeHeight() const { return m_eyeHeight; }
+  // Listening opens her eyes a little wider.
+  qreal eyeWidth() const { return m_eyeWidth * (1.0 + 0.2 * m_listen); }
+  qreal eyeHeight() const { return m_eyeHeight * (1.0 + 0.08 * m_listen); }
   qreal eyeRound() const { return m_eyeRound; }
 
   // Height of each eye as actually drawn, lid included.
@@ -216,6 +222,21 @@ public:
 
   // Hard reset used by tests and by wake-up: abandon the current transition.
   Q_INVOKABLE void snapForm(int form);
+
+  // What the assistant is doing, as she shows it: "listening", "thinking",
+  // "acting", "speaking", "error", "sleeping" or "idle". Each reuses her own
+  // vocabulary -- the thinking tumble, the exclamation, sleep -- rather than
+  // inventing a second one, and "idle" leaves her entirely to herself.
+  Q_INVOKABLE void setCue(const QString &cue);
+  QString cue() const { return m_cue; }
+  // Loudness of her own voice while she speaks, 0..1.
+  Q_INVOKABLE void setVoiceLevel(qreal level);
+  qreal listenAmount() const { return m_listen; }
+  // Both eyes squeezed shut for a moment: screen memory just paused.
+  Q_INVOKABLE void coverEyes();
+  bool eyesCovered() const { return m_coverHold > 0.0; }
+  // Nod off now rather than waiting to.
+  Q_INVOKABLE void sleep();
 
   // Drop everything and return to the idle pose immediately: no rings, no
   // badge, no squash, eyes at rest. Backs the `rest` command.
@@ -326,6 +347,13 @@ private:
   bool m_hovered = false;
   bool m_lookingAtCursor = false;
   qreal m_sinceLook = 99.0; // seconds since the cursor last moved
+
+  // Assistant cues.
+  QString m_cue = QStringLiteral("idle");
+  qreal m_listen = 0.0, m_listenTarget = 0.0;
+  qreal m_voice = 0.0, m_voiceTarget = 0.0;
+  qreal m_ringFloor = 0.0; // rings held up while she works
+  qreal m_coverHold = 0.0, m_coverLid = 0.0;
 
   QRandomGenerator m_random;
 };

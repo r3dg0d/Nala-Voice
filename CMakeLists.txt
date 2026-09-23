@@ -1,13 +1,38 @@
 cmake_minimum_required(VERSION 3.22)
-project(Nala VERSION 1.0.0 LANGUAGES CXX)
+project(Nala VERSION 1.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+# Keep the runtime path to Qt when it lives outside the system's library
+# directories (a Nix store, a Qt in /opt); system paths are left out anyway.
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
-find_package(Qt6 6.10 REQUIRED COMPONENTS Core DBus Gui Widgets Quick Qml ShaderTools Test)
+find_package(Qt6 6.10 REQUIRED COMPONENTS Core DBus Gui Widgets Quick Qml ShaderTools Test
+  Network Multimedia Sql Concurrent)
 # Wayland overlay placement on Hyprland. Optional so the app still builds and
 # runs (as a plain floating window) on compositors without layer-shell.
 find_package(LayerShellQt 6.7 QUIET CONFIG)
+
+# The assistant: speech, the model, tools and memory. A library so the unit
+# tests link exactly the code the app runs.
+qt_add_library(nala_assistant STATIC
+  src/assistant/assistant.cpp src/assistant/assistant.h
+  src/assistant/audio.cpp src/assistant/audio.h
+  src/assistant/audioutil.cpp src/assistant/audioutil.h
+  src/assistant/commandrouter.cpp src/assistant/commandrouter.h
+  src/assistant/desktop.cpp src/assistant/desktop.h
+  src/assistant/eventlog.cpp src/assistant/eventlog.h
+  src/assistant/llm.cpp src/assistant/llm.h
+  src/assistant/memory.cpp src/assistant/memory.h
+  src/assistant/policy.cpp src/assistant/policy.h
+  src/assistant/screenmemory.cpp src/assistant/screenmemory.h
+  src/assistant/settings.cpp src/assistant/settings.h
+  src/assistant/speech.cpp src/assistant/speech.h
+  src/assistant/tools.cpp src/assistant/tools.h)
+target_include_directories(nala_assistant PUBLIC src/assistant)
+target_link_libraries(nala_assistant PUBLIC
+  Qt6::Core Qt6::Gui Qt6::Network Qt6::Multimedia Qt6::Sql Qt6::Concurrent)
+target_compile_options(nala_assistant PRIVATE -Wall -Wextra -Wpedantic)
 
 qt_add_executable(nala
   src/main.cpp
@@ -29,9 +54,11 @@ qt_add_shaders(nala "shaders"
 qt_add_resources(nala "ui" PREFIX / FILES
   qml/Mascot.qml
   qml/Settings.qml
+  qml/Bubble.qml
+  qml/MemoryTimeline.qml
   assets/nala.svg)
 
-target_link_libraries(nala PRIVATE
+target_link_libraries(nala PRIVATE nala_assistant
   Qt6::Core Qt6::DBus Qt6::Gui Qt6::Widgets Qt6::Quick Qt6::Qml Qt6::Test)
 
 if(LayerShellQt_FOUND)
@@ -41,6 +68,8 @@ if(LayerShellQt_FOUND)
 endif()
 
 target_compile_options(nala PRIVATE -Wall -Wextra -Wpedantic)
+# project(VERSION) above is the one place the version is written down.
+target_compile_definitions(nala PRIVATE NALA_VERSION="${PROJECT_VERSION}")
 
 include(GNUInstallDirs)
 install(TARGETS nala RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -71,3 +100,10 @@ add_test(NAME nala-install
                  ${CMAKE_BINARY_DIR})
 set_tests_properties(nala-self-test PROPERTIES ENVIRONMENT
   "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;QT_QUICK_BACKEND=software")
+
+# The assistant's own tests: routing, policy, memory, the privacy switch.
+qt_add_executable(nala-assistant-tests tests/assistant_tests.cpp)
+target_link_libraries(nala-assistant-tests PRIVATE nala_assistant Qt6::Test)
+add_test(NAME nala-assistant-tests COMMAND nala-assistant-tests)
+set_tests_properties(nala-assistant-tests PROPERTIES ENVIRONMENT
+  "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;HYPRLAND_INSTANCE_SIGNATURE=")

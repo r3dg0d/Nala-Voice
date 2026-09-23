@@ -1,4 +1,8 @@
 #include "activity.h"
+#include "assistant.h"
+#include "eventlog.h"
+#include "screenmemory.h"
+#include "settings.h"
 #include "backend.h"
 #include "compositor.h"
 #include "cursor.h"
@@ -17,6 +21,9 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLockFile>
+#include <QPointer>
+#include <QAction>
+#include <QFileInfo>
 #include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
@@ -29,6 +36,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <memory>
 #include <unistd.h>
 
 namespace {
@@ -76,7 +84,7 @@ int main(int argc, char **argv) {
   app.setApplicationName("nala");
   app.setApplicationDisplayName("Nala");
   app.setOrganizationName("Nala");
-  app.setApplicationVersion("1.0.0");
+  app.setApplicationVersion(QStringLiteral(NALA_VERSION));
   app.setDesktopFileName("nala");
   app.setQuitOnLastWindowClosed(false);
 
@@ -95,7 +103,9 @@ int main(int argc, char **argv) {
   parser.addPositionalArgument(
       "command",
       "run (default), settings, status, poke, wink, think, alert, notify, "
-      "scatter, dash, demo, rest, reset, quit");
+      "scatter, dash, demo, rest, reset, quit; and for the assistant: "
+      "listen, ask <words>, stop, doctor, timeline, "
+      "memory pause [minutes] | resume | status");
   parser.process(app);
 
   // Both capture modes drive the animation clock themselves, so they share the
@@ -104,7 +114,10 @@ int main(int argc, char **argv) {
   const bool testing = parser.isSet("self-test") || parser.isSet("poses") ||
                        parser.isSet("film");
   const bool preview = parser.isSet("preview") || testing;
-  const QString requested = parser.positionalArguments().value(0, "run");
+  // Everything after the command is its argument: `nala ask what time is it`.
+  const QString requested = parser.positionalArguments().isEmpty()
+                                ? QStringLiteral("run")
+                                : parser.positionalArguments().join(' ');
   const QString socketPath = runtimeSocket();
 
   // Hand the command to an already-running Nala rather than starting a second.
@@ -112,14 +125,20 @@ int main(int argc, char **argv) {
     QLocalSocket client;
     client.connectToServer(socketPath);
     if (client.waitForConnected(300)) {
-      client.write((requested == "run" ? "status" : requested).toUtf8() + "\n");
+      // One line on the wire: newlines in an argument would split it.
+      QString line = requested == "run" ? QStringLiteral("status") : requested;
+      line.replace('\n', ' ');
+      client.write(line.toUtf8().left(4000) + "\n");
       client.flush();
       client.waitForBytesWritten(1000);
-      if (client.waitForReadyRead(2500))
+      // The health check waits on the network, so give it longer.
+      if (client.waitForReadyRead(line == "doctor" ? 12000 : 2500))
         QTextStream(stdout) << client.readAll();
       return 0;
     }
-    if (requested == "status" || requested == "quit") {
+    if (requested == "status" || requested == "quit" ||
+        requested == "doctor" || requested.startsWith("ask ") ||
+        requested.startsWith("memory")) {
       QTextStream(stderr) << "Nala is not running.\n";
       return 1;
     }
@@ -178,6 +197,44 @@ int main(int argc, char **argv) {
   Backend backend(configPath, preview, testing, &mascot, &theme, &cursor,
                   &activity, &compositor, &music);
 
+  // The assistant keeps its settings, memories and log beside the
+  // companion's, or in the throwaway directory when being measured.
+  Assistant::Paths paths;
+  paths.settings = QFileInfo(configPath).absolutePath() + "/assistant.json";
+  paths.memoryDir =
+      testing ? temp.path() + "/memory"
+              : QStandardPaths::writableLocation(
+                    QStandardPaths::GenericDataLocation) +
+                    "/nala/memory";
+  paths.log = testing ? QString()
+                      : QStandardPaths::writableLocation(
+                            QStandardPaths::GenericStateLocation) +
+                            "/nala/assistant.log";
+  Assistant assistant(paths, testing);
+  assistant.setCompanion([&backend](const QString &command) {
+    backend.command(command);
+  });
+  QObject::connect(&assistant, &Assistant::stateChanged, &mascot,
+                   [&] { mascot.setCue(assistant.state()); });
+  QObject::connect(&assistant, &Assistant::levelsChanged, &mascot,
+                   [&] { mascot.setVoiceLevel(assistant.voiceLevel()); });
+  // However screen memory gets paused -- voice, tray, a button -- she covers
+  // her eyes, so the moment is visible.
+  auto memoryWasPaused = std::make_shared<bool>(assistant.memory()->paused());
+  QObject::connect(assistant.memory(), &ScreenMemory::changed, &mascot,
+                   [&, memoryWasPaused] {
+                     const bool paused = assistant.memory()->paused();
+                     if (paused && !*memoryWasPaused)
+                       mascot.coverEyes();
+                     *memoryWasPaused = paused;
+                   });
+  QObject::connect(&assistant, &Assistant::settingsRequested, &backend,
+                   &Backend::openSettings);
+  QObject::connect(&assistant, &Assistant::settingsCloseRequested, &backend,
+                   &Backend::closeSettings);
+  QObject::connect(&assistant, &Assistant::timelineRequested, &backend,
+                   &Backend::openTimeline);
+
   qmlRegisterType<OrbitLayer>("Nala", 1, 0, "OrbitLayer");
   qmlRegisterType<Trail>("Nala", 1, 0, "Trail");
   qmlRegisterUncreatableType<Mascot>("Nala", 1, 0, "Mascot",
@@ -188,6 +245,11 @@ int main(int argc, char **argv) {
   engine.rootContext()->setContextProperty("mascot", &mascot);
   engine.rootContext()->setContextProperty("orbits", &orbits);
   engine.rootContext()->setContextProperty("theme", &theme);
+  engine.rootContext()->setContextProperty("assistant", &assistant);
+  engine.rootContext()->setContextProperty("assistantSettings",
+                                           assistant.settings());
+  engine.rootContext()->setContextProperty("screenMemory", assistant.memory());
+  engine.rootContext()->setContextProperty("eventLog", assistant.log());
 
   QStringList warnings;
   QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app,
@@ -211,6 +273,8 @@ int main(int argc, char **argv) {
   }
 
   backend.attach(window);
+  if (auto *bubble = window->findChild<QQuickWindow *>("bubbleWindow"))
+    backend.attachBubble(bubble);
   window->setIcon(QIcon(":/assets/nala.svg"));
   window->setProperty("ready", true);
 
@@ -237,14 +301,60 @@ int main(int argc, char **argv) {
           }
           const QString name =
               QString::fromUtf8(buffer.left(buffer.indexOf('\n'))).trimmed();
+          const QString verb = name.section(' ', 0, 0);
+          const QString rest = name.section(' ', 1).trimmed();
+          const auto reply = [client](const QString &text) {
+            client->write(text.toUtf8() + "\n");
+            client->flush();
+            client->disconnectFromServer();
+          };
           if (name == "status") {
-            client->write(backend.status().toUtf8() + "\n");
+            reply(backend.status() + QStringLiteral("; assistant %1, screen "
+                                                    "memory %2")
+                                         .arg(assistant.state(),
+                                              assistant.memory()->status()));
+          } else if (verb == "doctor") {
+            // Answered when the checks come back.
+            QPointer<QLocalSocket> guard(client);
+            assistant.diagnose([guard, reply](const QString &text) {
+              if (guard)
+                reply(text.trimmed());
+            });
+          } else if (verb == "listen") {
+            assistant.toggleListening();
+            reply(assistant.listening() ? "listening" : "not listening");
+          } else if (verb == "ask") {
+            if (rest.isEmpty()) {
+              reply("usage: nala ask <words>");
+            } else {
+              assistant.ask(rest);
+              reply("ok");
+            }
+          } else if (verb == "stop") {
+            assistant.stop();
+            reply("ok");
+          } else if (verb == "timeline") {
+            backend.openTimeline();
+            reply("ok");
+          } else if (verb == "memory") {
+            const QString what = rest.section(' ', 0, 0);
+            if (what == "pause") {
+              assistant.memory()->pause(rest.section(' ', 1, 1).toInt());
+            } else if (what == "resume") {
+              assistant.memory()->resume();
+            } else if (what != "status" && !what.isEmpty()) {
+              reply("usage: nala memory pause [minutes] | resume | status");
+              return;
+            }
+            reply(QStringLiteral("screen memory %1, %2 memories, %3")
+                      .arg(assistant.memory()->status())
+                      .arg(assistant.memory()->count())
+                      .arg(assistant.formatBytes(
+                          assistant.memory()->storageBytes())));
           } else {
             backend.command(name);
-            client->write("ok\n");
+            reply("ok");
           }
-          client->flush();
-          client->disconnectFromServer();
         });
         QObject::connect(client, &QLocalSocket::disconnected, client,
                          &QObject::deleteLater);
@@ -255,6 +365,24 @@ int main(int argc, char **argv) {
   QSystemTrayIcon tray;
   QMenu menu;
   menu.addAction("Preferences…", &backend, &Backend::openSettings);
+  menu.addAction("Listen", &assistant, &Assistant::toggleListening);
+  menu.addAction("Memories…", &backend, &Backend::openTimeline);
+  QAction *privacy = menu.addAction("Pause screen memory");
+  const auto refreshPrivacy = [&] {
+    privacy->setVisible(assistant.memory()->enabled());
+    privacy->setText(assistant.memory()->paused() ? "Resume screen memory"
+                                                  : "Pause screen memory");
+  };
+  refreshPrivacy();
+  QObject::connect(assistant.memory(), &ScreenMemory::changed, &menu,
+                   refreshPrivacy);
+  QObject::connect(privacy, &QAction::triggered, &assistant, [&] {
+    if (assistant.memory()->paused()) {
+      assistant.memory()->resume();
+    } else {
+      assistant.memory()->pause();
+    }
+  });
   menu.addAction("Say hello", &mascot, [&mascot] { mascot.poke(); });
   menu.addAction("Off you go", &backend,
                  [&backend] { backend.command("dash"); });

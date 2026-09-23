@@ -578,8 +578,16 @@ void Mascot::tick(qreal dt) {
   settle(m_roll, m_rollTarget, dt, 8.0);
   // The rings come up in 117 ms and take 683 ms to fade: sharply asymmetric,
   // so one rate cannot serve for both.
-  settle(m_rings, m_ringsTarget, dt,
-         m_ringsTarget > m_rings ? kRingsRise : kRingsFall);
+  const qreal ringsTarget = std::max(m_ringsTarget, m_ringFloor);
+  settle(m_rings, ringsTarget, dt,
+         ringsTarget > m_rings ? kRingsRise : kRingsFall);
+
+  // Assistant cues. While she is listening or talking she is plainly not
+  // idle, so she does not drift off mid-sentence.
+  settle(m_listen, m_listenTarget, dt, 9.0);
+  settle(m_voice, m_voiceTarget, dt, 22.0);
+  if (m_listenTarget > 0.0 || m_voiceTarget > 0.02)
+    m_idle = 0.0;
 
   // The badge pops. It overshoots its settled size by 19.5% about a third of
   // a second in, so it needs a spring rather than an approach.
@@ -637,8 +645,15 @@ void Mascot::tick(qreal dt) {
   } else {
     settle(m_winkLid, 0.0, dt, 14.0);
   }
-  m_left.lid = std::max(blinkLid, 0.0);
-  m_right.lid = std::max(blinkLid, m_winkLid);
+  // Covering her eyes: both squeezed, held, then opened again.
+  if (m_coverHold > 0.0) {
+    m_coverHold = std::max(0.0, m_coverHold - dt);
+    settle(m_coverLid, 0.9, dt, 16.0);
+  } else {
+    settle(m_coverLid, 0.0, dt, 8.0);
+  }
+  m_left.lid = std::max(blinkLid, m_coverLid);
+  m_right.lid = std::max({blinkLid, m_winkLid, m_coverLid});
   // A squeezed eye spreads sideways as it flattens.
   m_right.scale.setX(m_right.scale.x() * (1.0 + 0.3 * m_winkLid));
 
@@ -905,5 +920,72 @@ void Mascot::rest() {
   m_pitch = m_pitchTarget = kRestPitch;
   placeEyes();
   m_lookingAtCursor = false;
+  m_listen = m_listenTarget = 0.0;
+  m_voice = m_voiceTarget = 0.0;
+  m_ringFloor = 0.0;
+  m_coverHold = m_coverLid = 0.0;
+  m_cue = QStringLiteral("idle");
   emit frame();
+}
+
+void Mascot::setCue(const QString &cue) {
+  if (cue == m_cue)
+    return;
+  const QString was = m_cue;
+  m_cue = cue;
+
+  // Leaving a state: unwind what it put up.
+  if (was == "thinking" && m_mood == Thinking && m_hold > kSettleBack + 0.2)
+    m_hold = kSettleBack + 0.19; // unfold, then let the rings fade
+  if (was == "acting") {
+    m_ringFloor = 0.0;
+    if (m_formB == Hex && m_mood == Resting)
+      morphTo(Circle, kSettleBack);
+  }
+  if (was == "speaking")
+    m_voiceTarget = 0.0;
+  m_listenTarget = 0.0;
+
+  if (cue == "listening") {
+    wake();
+    m_listenTarget = 1.0;
+    // Look out at whoever is talking.
+    m_yawTarget = 0.0;
+    m_pitchTarget = 0.08;
+    m_lookingAtCursor = false;
+  } else if (cue == "thinking") {
+    think(600.0); // held until the cue changes
+  } else if (cue == "acting") {
+    wake();
+    m_ringFloor = 0.5;
+    if (m_mood == Resting)
+      morphTo(Hex, 0.26);
+  } else if (cue == "speaking") {
+    wake();
+  } else if (cue == "error") {
+    alert();
+  } else if (cue == "sleeping") {
+    sleep();
+  }
+}
+
+void Mascot::setVoiceLevel(qreal level) {
+  m_voiceTarget = m_reduced ? 0.0 : qBound(0.0, level, 1.0);
+}
+
+void Mascot::coverEyes() {
+  wake();
+  m_coverHold = 1.4;
+}
+
+void Mascot::sleep() {
+  if (m_mood == Held || m_mood == Dashing)
+    return;
+  setMood(Asleep);
+  m_hold = 0.0;
+  m_ringsTarget = 0.0;
+  m_badgeTarget = 0.0;
+  morphTo(Tiny, 0.30);
+  m_scaleTarget = 1.0;
+  m_eyeHeightTarget = 0.0;
 }

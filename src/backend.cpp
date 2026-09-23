@@ -368,6 +368,7 @@ void Backend::applyPlacement() {
       if (m_window->width() != extent || m_window->height() != extent)
         m_window->resize(extent, extent);
       applyInputRegion(m_dragging);
+      placeBubble();
       return;
     }
   }
@@ -377,6 +378,84 @@ void Backend::applyPlacement() {
     m_window->resize(extent, extent);
   m_window->setPosition(screen.x() + x, screen.y() + y);
   applyInputRegion(m_dragging);
+  placeBubble();
+}
+
+void Backend::attachBubble(QQuickWindow *bubble) {
+  m_bubble = bubble;
+  if (!m_bubble)
+    return;
+  // Declared inside her window, but its own surface, not a child of hers.
+  m_bubble->setTransientParent(nullptr);
+  m_bubble->setFlag(Qt::FramelessWindowHint, true);
+  m_bubble->setColor(Qt::transparent);
+#ifdef NALA_HAVE_LAYER_SHELL
+  // As for her: the role has to be given before the surface exists.
+  if (!m_preview) {
+    if (auto *layer = LayerShellQt::Window::get(m_bubble)) {
+      layer->setScope(QStringLiteral("nala-bubble"));
+      layer->setAnchors({LayerShellQt::Window::AnchorTop |
+                         LayerShellQt::Window::AnchorLeft});
+      layer->setExclusiveZone(-1);
+      layer->setKeyboardInteractivity(
+          LayerShellQt::Window::KeyboardInteractivityNone);
+      layer->setCloseOnDismissed(false);
+      m_bubbleLayered = true;
+    }
+  }
+#endif
+  placeBubble();
+  m_bubble->setVisible(true);
+  setBubbleInteractive(false);
+}
+
+void Backend::setBubbleInteractive(bool interactive) {
+  m_bubbleInteractive = interactive;
+  if (!m_bubble)
+    return;
+  // Clicks pass straight through an empty region; a question takes them.
+  m_bubble->setMask(interactive
+                        ? QRegion(0, 0, m_bubble->width(), m_bubble->height())
+                        : noInput());
+}
+
+void Backend::placeBubble() {
+  if (!m_bubble || !m_window)
+    return;
+  const QRect screen = screenGeometry();
+  const qreal extent = windowSize();
+  const int w = m_bubble->width(), h = m_bubble->height();
+  // Her body, in the screen's own coordinates.
+  const qreal cx = m_place.x() * (screen.width() - extent) + extent * 0.5;
+  const qreal top = m_place.y() * (screen.height() - extent) +
+                    extent * (0.5 - 0.5 / kCanvasToBody);
+  const qreal bottom = top + extent / kCanvasToBody;
+
+  const bool below = top - h < 0;
+  const int x = int(std::lround(qBound(0.0, cx - w * 0.5,
+                                       qreal(std::max(0, screen.width() - w)))));
+  const int y = int(std::lround(below ? bottom : top - h));
+  const qreal tail = qBound(0.1, (cx - x) / qMax(1, w), 0.9);
+  if (below != m_bubbleBelow || !qFuzzyCompare(tail, m_bubbleTail)) {
+    m_bubbleBelow = below;
+    m_bubbleTail = tail;
+    emit bubbleMoved();
+  }
+
+#ifdef NALA_HAVE_LAYER_SHELL
+  if (m_bubbleLayered) {
+    if (auto *layer = LayerShellQt::Window::get(m_bubble)) {
+      for (QScreen *candidate : QGuiApplication::screens())
+        if (!m_monitor.isEmpty() && candidate->name() == m_monitor)
+          layer->setScreen(candidate);
+      layer->setLayer(LayerShellQt::Window::LayerOverlay);
+      layer->setDesiredSize(QSize(w, h));
+      layer->setMargins(QMargins(x, qMax(0, y), 0, 0));
+      return;
+    }
+  }
+#endif
+  m_bubble->setPosition(screen.x() + x, screen.y() + qMax(0, y));
 }
 
 void Backend::applyInputRegion(bool wholeWindow) {
@@ -612,6 +691,10 @@ void Backend::injectCursor(int x, int y) {
 
 void Backend::openSettings() { emit settingsRequested(); }
 
+void Backend::closeSettings() { emit settingsCloseRequested(); }
+
+void Backend::openTimeline() { emit timelineRequested(); }
+
 void Backend::quit() { QCoreApplication::quit(); }
 
 void Backend::command(const QString &name) {
@@ -627,6 +710,10 @@ void Backend::command(const QString &name) {
     m_mascot->notify();
   else if (name == "wake")
     m_mascot->wake();
+  else if (name == "sleep")
+    m_mascot->sleep();
+  else if (name == "cover-eyes")
+    m_mascot->coverEyes();
   else if (name == "rest")
     m_mascot->rest();
   else if (name == "wink")

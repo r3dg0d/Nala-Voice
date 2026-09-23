@@ -35,6 +35,10 @@ class Backend : public QObject {
   Q_PROPERTY(QString feedback READ feedback NOTIFY feedbackChanged)
   Q_PROPERTY(bool outOfTheWay READ outOfTheWay NOTIFY outOfTheWayChanged)
   Q_PROPERTY(bool testing READ testing CONSTANT)
+  // Where the speech bubble sits relative to her: below when there is no
+  // room above, and where along its width the tail should point.
+  Q_PROPERTY(bool bubbleBelow READ bubbleBelow NOTIFY bubbleMoved)
+  Q_PROPERTY(qreal bubbleTail READ bubbleTail NOTIFY bubbleMoved)
 
 public:
   Backend(QString configPath, bool preview, bool testing, Mascot *mascot,
@@ -64,11 +68,19 @@ public:
   qreal ny() const { return m_place.y(); }
 
   void attach(QQuickWindow *window);
+  // The speech bubble: a second surface kept beside her.
+  void attachBubble(QQuickWindow *bubble);
+  bool bubbleBelow() const { return m_bubbleBelow; }
+  qreal bubbleTail() const { return m_bubbleTail; }
+  // Take clicks only while there is something to click.
+  Q_INVOKABLE void setBubbleInteractive(bool interactive);
 
   Q_INVOKABLE void configure(const QString &key, const QVariant &value);
   Q_INVOKABLE void setStartAtLogin(bool enabled);
   Q_INVOKABLE void resetPlace();
   Q_INVOKABLE void openSettings();
+  Q_INVOKABLE void closeSettings();
+  Q_INVOKABLE void openTimeline();
   Q_INVOKABLE void quit();
   Q_INVOKABLE void command(const QString &name);
   QString status() const;
@@ -104,6 +116,9 @@ signals:
   void screensChanged();
   void feedbackChanged();
   void settingsRequested();
+  void settingsCloseRequested();
+  void bubbleMoved();
+  void timelineRequested();
 
 private:
   void load();
@@ -111,6 +126,7 @@ private:
   void applyToMascot();
   void applyPlacement();
   void applyInputRegion(bool wholeWindow = false);
+  void placeBubble();
   void note(const QString &message);
   QRect screenGeometry() const;
 
@@ -127,6 +143,11 @@ private:
   qreal m_sinceBusyThought = 0.0;
   QQuickWindow *m_window = nullptr;
   bool m_layered = false;
+  QQuickWindow *m_bubble = nullptr;
+  bool m_bubbleLayered = false;
+  bool m_bubbleInteractive = false;
+  bool m_bubbleBelow = false;
+  qreal m_bubbleTail = 0.5;
 
   qreal m_size = 1.0;
   QString m_colorMode = QStringLiteral("ink");

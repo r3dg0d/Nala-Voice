@@ -118,6 +118,56 @@ Window {
             z: -1
         }
 
+        // Screen memory, shown the way a camera shows it is on: a small red
+        // light while it records, and an eye struck through while it is
+        // paused. Nothing at all when it is switched off.
+        Item {
+            id: privacyMark
+
+            objectName: "privacyMark"
+            readonly property real unit: stage.width * 0.5 * 0.529
+            visible: screenMemory.enabled
+            width: unit * 0.34
+            height: width
+            x: stage.width / 2 + unit * 0.62 - width / 2
+            y: stage.height / 2 - unit * 0.78 - height / 2
+            z: 2
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                visible: screenMemory.recording
+                color: "#e5484d"
+                border.width: Math.max(1, parent.width * 0.12)
+                border.color: "#fdfdfd"
+                opacity: 0.9
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                visible: screenMemory.paused
+                color: "#fdfdfd"
+                border.width: Math.max(1, parent.width * 0.1)
+                border.color: backend.mascotColor
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: parent.width * 0.5
+                    height: parent.height * 0.3
+                    radius: height / 2
+                    color: backend.mascotColor
+                }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: parent.width * 0.86
+                    height: Math.max(1, parent.width * 0.12)
+                    rotation: -45
+                    color: "#e5484d"
+                }
+            }
+        }
+
         // Droplets thrown clear when she comes apart. Positions arrive in
         // units of her body radius, measured from her centre.
         Repeater {
@@ -190,8 +240,12 @@ Window {
             if (mouse.button !== Qt.LeftButton)
                 return;
             backend.releaseDrag();
-            if (!moved)
-                mascot.poke();
+            if (moved)
+                return;
+            // Tapping her while she talks is the quickest way to hush her.
+            if (assistant.state === "speaking" || assistant.state === "thinking")
+                assistant.stop();
+            mascot.poke();
         }
 
         // If the compositor takes the grab away, do not strand her mid-drag.
@@ -213,8 +267,39 @@ Window {
         }
     }
 
+    // Her speech bubble lives on its own surface beside her.
+    Bubble {
+        id: bubble
+    }
+
+    Loader {
+        id: timeline
+
+        active: false
+        source: "qrc:/qml/MemoryTimeline.qml"
+        onLoaded: {
+            item.show();
+            item.raise();
+            item.requestActivate();
+        }
+    }
+
     Connections {
         target: backend
+        function onSettingsCloseRequested() {
+            if (settings.active)
+                settings.item.hide();
+        }
+        function onTimelineRequested() {
+            if (!timeline.active) {
+                timeline.active = true;
+            } else {
+                timeline.item.refresh();
+                timeline.item.show();
+                timeline.item.raise();
+                timeline.item.requestActivate();
+            }
+        }
         function onSettingsRequested() {
             if (!settings.active) {
                 settings.active = true;
