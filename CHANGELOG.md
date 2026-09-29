@@ -13,6 +13,13 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
   "pause memory for a month" and "forget the last month" no longer fall through
   to the model.
 
+### Tests
+
+- **STT auto→cli fallback**: offline coverage for `stt.mode=auto` falling back
+  to whisper-cli when whisper-server fails (`m_serverDead` sticky until an
+  `stt.*` setting changes), plus `server` mode (no fallback) and `cli` mode
+  (skips server).
+
 ## 1.3.6 — 2026-09-29
 
 Memory status no longer hides an armed privacy pause behind "off".

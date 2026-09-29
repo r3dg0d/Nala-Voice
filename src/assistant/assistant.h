@@ -255,6 +255,9 @@ public:
 
   // Test seams.
   void setSpeechBackend(SpeechToText *stt);
+  // Drive production auto/server/cli selection (including auto→cli fallback
+  // when the server fails) with scripted backends. Null keeps the real one.
+  void setSpeechBackendsForTest(SpeechToText *server, SpeechToText *cli);
   // Use `backend` for wake words instead of the neural one (tests).
   void setWakeBackend(wake::WakeWordBackend *backend, bool ready = true);
   // Audio as if from the microphone: frames for the detector, utterances as
@@ -317,6 +320,9 @@ private:
   void onUtterance(const QByteArray &pcm16k);
   void onFrames(const QVector<int16_t> &samples);
   void onWake(const wake::Detection &detection);
+  SpeechToText *sttServer() const;
+  SpeechToText *sttCli() const;
+  void wireSpeechBackend(SpeechToText *stt);
   bool wakeMode() const; // the neural detector decides who is addressed
   void reloadWake();
   void arm(int ms);
@@ -381,6 +387,8 @@ private:
   WhisperServer *m_whisperServer = nullptr;
   WhisperCli *m_whisperCli = nullptr;
   SpeechToText *m_sttOverride = nullptr;
+  SpeechToText *m_sttServerOverride = nullptr; // tests: auto/server path
+  SpeechToText *m_sttCliOverride = nullptr;    // tests: cli / auto fallback
   bool m_triedServer = false;
   FishSpeech *m_fish = nullptr;
   QwenTts *m_qwen = nullptr;

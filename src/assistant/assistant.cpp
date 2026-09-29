@@ -142,27 +142,8 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
 
   m_whisperServer = new WhisperServer(&m_network, this);
   m_whisperCli = new WhisperCli(this);
-  for (SpeechToText *stt :
-       std::initializer_list<SpeechToText *>{m_whisperServer, m_whisperCli}) {
-    connect(stt, &SpeechToText::transcribed, this, &Assistant::onTranscript);
-    connect(stt, &SpeechToText::failed, this, [this, stt](const QString &why) {
-      // In auto mode a server that is not there is not an error: fall back
-      // to the one-shot binary for this and later utterances.
-      if (stt == m_whisperServer &&
-          m_settings->string("stt.mode") == "auto" && !m_lastPcm.isEmpty()) {
-        m_serverDead = true;
-        m_log->record("stt", "server-unavailable", {{"reason", why}});
-        m_whisperCli->transcribe(m_lastPcm, m_settings->string("stt.language"));
-        return;
-      }
-      m_lastPcm.clear();
-      m_transcribing = false;
-      m_log->record("error", "stt", {{"reason", why}});
-      say(QStringLiteral("I couldn't make that out: %1").arg(why), false);
-      m_errorTimer.start();
-      settle();
-    });
-  }
+  wireSpeechBackend(m_whisperServer);
+  wireSpeechBackend(m_whisperCli);
 
   m_fish = new FishSpeech(&m_network, this);
   m_qwen = new QwenTts(&m_network, this);
@@ -531,9 +512,48 @@ void Assistant::stopListening() {
   settle();
 }
 
+SpeechToText *Assistant::sttServer() const {
+  return m_sttServerOverride ? m_sttServerOverride : m_whisperServer;
+}
+
+SpeechToText *Assistant::sttCli() const {
+  return m_sttCliOverride ? m_sttCliOverride : m_whisperCli;
+}
+
+void Assistant::wireSpeechBackend(SpeechToText *stt) {
+  connect(stt, &SpeechToText::transcribed, this, &Assistant::onTranscript);
+  connect(stt, &SpeechToText::failed, this, [this, stt](const QString &why) {
+    // In auto mode a server that is not there is not an error: fall back
+    // to the one-shot binary for this and later utterances.
+    if (stt == sttServer() &&
+        m_settings->string("stt.mode") == "auto" && !m_lastPcm.isEmpty()) {
+      m_serverDead = true;
+      m_log->record("stt", "server-unavailable", {{"reason", why}});
+      sttCli()->transcribe(m_lastPcm, m_settings->string("stt.language"));
+      return;
+    }
+    m_lastPcm.clear();
+    m_transcribing = false;
+    m_log->record("error", "stt", {{"reason", why}});
+    say(QStringLiteral("I couldn't make that out: %1").arg(why), false);
+    m_errorTimer.start();
+    settle();
+  });
+}
+
 void Assistant::setSpeechBackend(SpeechToText *stt) {
   m_sttOverride = stt;
   connect(stt, &SpeechToText::transcribed, this, &Assistant::onTranscript);
+}
+
+void Assistant::setSpeechBackendsForTest(SpeechToText *server, SpeechToText *cli) {
+  m_sttOverride = nullptr;
+  m_sttServerOverride = server;
+  m_sttCliOverride = cli;
+  if (server)
+    wireSpeechBackend(server);
+  if (cli)
+    wireSpeechBackend(cli);
 }
 
 void Assistant::onUtterance(const QByteArray &pcm16k) {
@@ -592,9 +612,9 @@ void Assistant::onUtterance(const QByteArray &pcm16k) {
   if (m_sttOverride)
     m_sttOverride->transcribe(pcm16k, language);
   else if (mode == "server" || (mode == "auto" && !m_serverDead))
-    m_whisperServer->transcribe(pcm16k, language);
+    sttServer()->transcribe(pcm16k, language);
   else
-    m_whisperCli->transcribe(pcm16k, language);
+    sttCli()->transcribe(pcm16k, language);
 }
 
 void Assistant::onTranscript(const QString &text, qint64 ms) {
@@ -1144,8 +1164,8 @@ void Assistant::stop() {
   m_thinking = false;
   m_transcribing = false;
   m_lastPcm.clear();
-  m_whisperServer->cancel();
-  m_whisperCli->cancel();
+  sttServer()->cancel();
+  sttCli()->cancel();
   m_tts->stop();
   m_speaker->stop();
   m_speech.clear();

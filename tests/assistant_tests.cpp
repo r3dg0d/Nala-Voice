@@ -120,18 +120,29 @@ public:
   qint64 heard = 0;
 };
 
-// A recogniser that "hears" whatever it is told to.
+// A recogniser that "hears" whatever it is told to. Set `failReason` to
+// emit failed instead of transcribed (STT auto→cli fallback tests).
 class ScriptedStt : public SpeechToText {
 public:
   using SpeechToText::SpeechToText;
   QString name() const override { return "scripted"; }
-  void transcribe(const QByteArray &, const QString &) override {
+  void transcribe(const QByteArray &pcm16k, const QString &language) override {
     ++calls;
+    lastPcm = pcm16k;
+    lastLanguage = language;
+    if (!failReason.isEmpty()) {
+      emit failed(failReason);
+      return;
+    }
     emit transcribed(next, 1);
   }
-  void cancel() override {}
+  void cancel() override { ++cancels; }
   QString next;
+  QString failReason;
+  QByteArray lastPcm;
+  QString lastLanguage;
   int calls = 0;
+  int cancels = 0;
 };
 
 QByteArray speech(int ms) {
@@ -1462,6 +1473,79 @@ private slots:
     QVERIFY2(failed.isEmpty(), qPrintable(failed.value(0).value(0).toString()));
     QCOMPARE(format.count(), 1);
     QVERIFY(!chunks.isEmpty());
+  }
+
+  // --- STT auto → whisper-cli fallback ------------------------------------
+
+  void sttAutoFallsBackToCliWhenServerFails() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.mode", "auto");
+    assistant.settings()->set("stt.activation", "push");
+    ScriptedStt server, cli;
+    server.failReason = "connection refused";
+    cli.next = "Stop.";
+    assistant.setSpeechBackendsForTest(&server, &cli);
+
+    const QByteArray pcm = speech(800);
+    QSignalSpy said(&assistant, &Assistant::said);
+    assistant.hearUtterance(pcm);
+
+    QCOMPARE(server.calls, 1);
+    QCOMPARE(cli.calls, 1);
+    QCOMPARE(cli.lastPcm, pcm);
+    QCOMPARE(cli.lastLanguage, QString("en"));
+    // Fallback succeeded: she did not report an STT error.
+    for (const QList<QVariant> &row : said)
+      QVERIFY(!row.at(0).toString().contains("couldn't make that out"));
+
+    // Sticky: later utterances skip the dead server.
+    cli.next = "Stop.";
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 1);
+    QCOMPARE(cli.calls, 2);
+
+    // Changing an stt.* setting retries the server.
+    server.failReason.clear();
+    server.next = "Stop.";
+    assistant.settings()->set("stt.serverUrl", "http://127.0.0.1:8179");
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 2);
+    QCOMPARE(cli.calls, 2);
+  }
+
+  void sttServerModeDoesNotFallBackToCli() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.mode", "server");
+    assistant.settings()->set("stt.activation", "push");
+    ScriptedStt server, cli;
+    server.failReason = "connection refused";
+    assistant.setSpeechBackendsForTest(&server, &cli);
+
+    QSignalSpy said(&assistant, &Assistant::said);
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 1);
+    QCOMPARE(cli.calls, 0);
+    QTRY_VERIFY(!said.isEmpty());
+    QVERIFY(said.last().at(0).toString().contains("couldn't make that out"));
+  }
+
+  void sttCliModeSkipsServer() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.mode", "cli");
+    assistant.settings()->set("stt.activation", "push");
+    ScriptedStt server, cli;
+    cli.next = "Stop.";
+    assistant.setSpeechBackendsForTest(&server, &cli);
+
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 0);
+    QCOMPARE(cli.calls, 1);
   }
 
   void toolSchemaIsWellFormed() {
