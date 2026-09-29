@@ -6,12 +6,25 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.1 — 2026-09-29
+
+Headless and packaging polish on top of 1.3.0. Ships the CLI fix that stopped
+GitHub Actions `nala --version` from aborting (exit 134) on runners with no
+display.
+
 ### Fixed
 
 - `nala --version` (and other CLI entry points) no longer abort with exit 134
   on headless hosts: the version flag prints before Qt starts, and when there
   is neither `DISPLAY` nor `WAYLAND_DISPLAY` the QPA platform defaults to
-  `offscreen`. CI smoke sets the same explicitly and checks the printed line.
+  `offscreen`. CI smoke checks both an explicit `offscreen` QPA and the
+  auto-selected path, and asserts the printed line matches CMake.
+
+### Changed
+
+- `nala doctor` leads with the binary version (`nala 1.3.1`).
+- `scripts/check-install.sh` asserts `--version` matches `CMakeLists.txt`.
+- NixOS docs show how to pin the flake input to a release tag.
 
 ## 1.3.0 — 2026-09-29
 

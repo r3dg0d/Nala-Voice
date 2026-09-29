@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Nala VERSION 1.3.0 LANGUAGES CXX)
+project(Nala VERSION 1.3.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -55,6 +55,8 @@ target_include_directories(nala_assistant PUBLIC src/assistant)
 target_link_libraries(nala_assistant PUBLIC
   Qt6::Core Qt6::Gui Qt6::Network Qt6::Multimedia Qt6::Sql Qt6::Concurrent)
 target_compile_options(nala_assistant PRIVATE -Wall -Wextra -Wpedantic)
+# project(VERSION) above is the one place the version is written down.
+target_compile_definitions(nala_assistant PUBLIC NALA_VERSION="${PROJECT_VERSION}")
 if(onnxruntime_FOUND)
   target_link_libraries(nala_assistant PUBLIC onnxruntime::onnxruntime)
   target_compile_definitions(nala_assistant PUBLIC NALA_HAVE_ONNX)
@@ -101,7 +103,7 @@ if(LayerShellQt_FOUND)
 endif()
 
 target_compile_options(nala PRIVATE -Wall -Wextra -Wpedantic)
-# project(VERSION) above is the one place the version is written down.
+# Same NALA_VERSION as nala_assistant (PUBLIC), so main.cpp sees it too.
 target_compile_definitions(nala PRIVATE NALA_VERSION="${PROJECT_VERSION}")
 
 include(GNUInstallDirs)

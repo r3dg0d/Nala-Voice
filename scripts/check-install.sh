@@ -31,9 +31,18 @@ else
   status=1
 fi
 
-# It has to actually run, not merely exist.
+# It has to actually run, not merely exist, and print the CMake version.
+# --version early-exits before Qt, so this also guards the headless path.
+src_root="$(cd "$(dirname "$0")/.." && pwd)"
+expected_ver=$(sed -n 's/.*project(Nala VERSION \([0-9.]*\).*/\1/p' "$src_root/CMakeLists.txt")
 if version="$("$root/usr/bin/nala" --version 2>/dev/null)"; then
   echo "PASS the installed binary runs ($version)"
+  if [[ "$version" == "nala ${expected_ver}" ]]; then
+    echo "PASS --version matches CMakeLists ($expected_ver)"
+  else
+    echo "FAIL --version '$version' != 'nala ${expected_ver}'"
+    status=1
+  fi
 else
   echo "FAIL the installed binary does not run"
   status=1

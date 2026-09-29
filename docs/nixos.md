@@ -16,6 +16,21 @@ From a checkout: `nix develop`, then `cmake -S . -B build -G Ninja && cmake --bu
 and run the tests with `ctest --test-dir build` (or `build/nala-model-tests`,
 `build/nala-assistant-tests`). `nix build` runs the suites in its check phase.
 
+## Pin a release
+
+In your system flake, pin the input to a tagged release (and let the lock
+follow the tag's commit):
+
+```nix
+{
+  inputs.nala-voice.url = "github:r3dg0d/Nala-Voice/v1.3.1";
+  inputs.nala-voice.inputs.nixpkgs.follows = "nixpkgs";
+}
+```
+
+Then `nix flake update nala-voice` and rebuild. `nala --version` should report
+the same number as the tag.
+
 ## In your system configuration
 
 ```nix

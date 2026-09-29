@@ -3,7 +3,12 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.0)
+## Where things stand (1.3.1)
+
+1.3.1 is a packaging / headless-CLI bump on top of 1.3.0: `nala --version`
+early-exits before Qt (so CI and headless hosts no longer abort with exit
+134), `nala doctor` prints the version first, install-check and CI assert the
+printed string, and NixOS docs show how to pin `v1.3.1`.
 
 1.3.0 added the multi-model layer (see [docs/models.md](docs/models.md)):
 main / fast / speed routing with fallback, the native Ollama API, streaming

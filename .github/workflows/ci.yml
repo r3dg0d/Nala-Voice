@@ -43,5 +43,10 @@ jobs:
           ver=$(sed -n 's/.*project(Nala VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           out=$(QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
             ./result/bin/nala --version)
-          echo "$out"
+          echo "explicit offscreen: $out"
           test "$out" = "nala ${ver}"
+          # Also prove the auto-offscreen path: no display vars, no QT_QPA.
+          out2=$(env -u DISPLAY -u WAYLAND_DISPLAY -u QT_QPA_PLATFORM \
+            QT_QPA_PLATFORMTHEME= ./result/bin/nala --version)
+          echo "auto offscreen: $out2"
+          test "$out2" = "nala ${ver}"

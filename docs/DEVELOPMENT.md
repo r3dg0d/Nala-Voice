@@ -17,10 +17,13 @@ window fails to load (the error now says which module is missing).
 self-test suites in the sandbox. `nix flake check` builds the same package
 (via the `checks.nala` output). GitHub Actions does `nix build`, checks that
 CMakeLists.txt, flake.nix and PKGBUILD share a version, then smokes
-`nala --version` under `QT_QPA_PLATFORM=offscreen` and asserts the printed
-line matches the CMake version. `--version` itself early-exits before
-`QApplication`, and any headless run (no `DISPLAY` / `WAYLAND_DISPLAY`)
-defaults the QPA platform to `offscreen` so CLI helpers do not abort.
+`nala --version` twice: once under `QT_QPA_PLATFORM=offscreen`, and once with
+display and QPA vars cleared so the binary's auto-`offscreen` path is
+exercised. Both asserts match the CMake version. `--version` itself
+early-exits before `QApplication`, and any headless run (no `DISPLAY` /
+`WAYLAND_DISPLAY`) defaults the QPA platform to `offscreen` so CLI helpers do
+not abort. `scripts/check-install.sh` also asserts the installed binary's
+`--version` string.
 
 ## Tests
 

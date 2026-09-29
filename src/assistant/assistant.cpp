@@ -1416,7 +1416,7 @@ void Assistant::diagnose(std::function<void(QString)> done) {
       return;
     m_setup = report->items;
     emit setupChanged();
-    QString text;
+    QString text = QStringLiteral("nala %1\n").arg(QStringLiteral(NALA_VERSION));
     for (const QVariant &v : report->items) {
       const QVariantMap item = v.toMap();
       text += QStringLiteral("%1 %2: %3\n")
