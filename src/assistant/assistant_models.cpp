@@ -342,12 +342,17 @@ void Assistant::think(const QString &text) {
                   m_latency.ms(LatencyTrace::Route) + routing.elapsed());
     prepareVram(pick, [this, turn](ModelPick ready) { dispatchTurn(ready, turn); });
   };
-  // The model list is read once a minute at most; a server that is down is
-  // asked each time, which fails at once, and the client then reports it.
-  if (m_modelsKnown && m_modelsAge.isValid() && m_modelsAge.elapsed() < 60000)
+  // Never hold a request for the model list once it is known: a stale list is
+  // used as it is and refreshed in the background for the next one. A server
+  // that is down is asked each time, which fails at once, and the client then
+  // reports it.
+  if (m_modelsKnown) {
     go();
-  else
+    if (!m_modelsAge.isValid() || m_modelsAge.elapsed() > 60000)
+      refreshModels();
+  } else {
     refreshModels(go);
+  }
 }
 
 bool Assistant::tryFallbackModel(const QString &why) {
@@ -557,14 +562,14 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
   const QString engine = m_settings->string("tts.engine");
   const QUrl qwen(m_settings->string("tts.qwen.endpoint"));
   const QUrl fish(m_settings->string("tts.endpoint"));
-  auto lines = std::make_shared<QStringList>();
+  auto lines = std::make_shared<QStringList>(QStringList{QString(), QString()});
   auto pending = std::make_shared<int>(2);
   const auto finish = [this, done, lines, pending, engine] {
     if (--*pending > 0)
       return;
     QString text = QStringLiteral("Voice (TTS), engine: %1%2\n")
                        .arg(engine, m_settings->flag("tts.muted") ? QStringLiteral(" (muted)") : QString());
-    text += lines->join('\n');
+    text += lines->join('\n'); // Qwen3-TTS first, then Fish Speech, whoever answered first
     const QStringList down = m_tts->downEngines();
     if (!down.isEmpty())
       text += QStringLiteral("\n  Skipping for now after a failure: %1").arg(down.join(", "));
@@ -573,14 +578,14 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
     done(text);
   };
   checkUrl(qwen, [lines, finish, qwen, engine](bool up, QString error) {
-    *lines << QStringLiteral("  Qwen3-TTS %1 at %2: %3")
+    (*lines)[0] = QStringLiteral("  Qwen3-TTS %1 at %2: %3")
                   .arg(engine == "fish" ? QStringLiteral("(unused)") : QStringLiteral("(primary)"),
                        qwen.toString(),
                        up ? QStringLiteral("running") : QStringLiteral("not responding (%1)").arg(error));
     finish();
   });
   checkUrl(fish, [lines, finish, fish, engine](bool up, QString error) {
-    *lines << QStringLiteral("  Fish Speech %1 at %2: %3")
+    (*lines)[1] = QStringLiteral("  Fish Speech %1 at %2: %3")
                   .arg(engine == "auto" ? QStringLiteral("(fallback)")
                                         : engine == "fish" ? QStringLiteral("(primary)")
                                                            : QStringLiteral("(unused)"),
@@ -665,6 +670,15 @@ void Assistant::modelCommand(const QString &args, std::function<void(QString)> r
               t += QStringLiteral("  loaded: yes, %1 in VRAM (%2% on the GPU%3)\n")
                        .arg(gib(l.vramBytes)).arg(l.gpuPercent())
                        .arg(l.gpuPercent() < 100 ? QStringLiteral(" -- part runs from system RAM, slower") : QString());
+              if (l.contextLength > 0) {
+                const int wanted = m_settings->integer("llm.contextTokens");
+                t += QStringLiteral("  context: %1 tokens%2\n")
+                         .arg(l.contextLength)
+                         .arg(l.contextLength > 2 * wanted && m_settings->flag("llm.ollamaNative")
+                                  ? QStringLiteral(" -- larger than llm.contextTokens (%1); it loads at the "
+                                                   "size Nala asks for on the next request").arg(wanted)
+                                  : QString());
+              }
             }
           if (!loaded)
             t += QStringLiteral("  loaded: no\n");
@@ -806,6 +820,8 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
     qint64 ttft = -1;
     int tokens = 0;
     qint64 peakMiB = 0;
+    int statTokens = 0;
+    qint64 statMs = 0;
     QTimer sampler;
     QList<QMetaObject::Connection> links;
     bool finished = false;
@@ -838,6 +854,9 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
     r.ttft = run->ttft;
     const qint64 generating = r.total - std::max<qint64>(0, run->ttft);
     r.tps = run->tokens > 0 && generating > 0 ? run->tokens * 1000.0 / double(generating) : 0.0;
+    // Ollama times generation itself; that beats our own clock.
+    if (run->statTokens > 0 && run->statMs > 0)
+      r.tps = run->statTokens * 1000.0 / double(run->statMs);
     r.peakMiB = run->peakMiB;
     r.ok = ok;
     r.note = !ok ? note : (p.tools && !toolOk ? QStringLiteral("no valid volume tool call") : QString());
@@ -845,6 +864,11 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
   };
   run->links << QObject::connect(llm, &LlmClient::firstToken, self, [run](qint64 ms) { run->ttft = ms; });
   run->links << QObject::connect(llm, &LlmClient::usage, self, [run](int t, int) { run->tokens = t; });
+  run->links << QObject::connect(llm, &LlmClient::stats, self,
+                                 [run](int, int out, qint64, qint64, qint64 outMs) {
+                                   run->statTokens = out;
+                                   run->statMs = outMs;
+                                 });
   run->links << QObject::connect(llm, &LlmClient::replied, self, [finish, p](const LlmReply &reply) {
     bool toolOk = false;
     for (const ToolCall &c : reply.toolCalls)

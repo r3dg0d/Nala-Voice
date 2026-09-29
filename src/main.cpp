@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
   parser.addHelpOption();
   parser.addVersionOption();
   parser.addOption({"preview", "Open as a plain window, without the overlay"});
+  parser.addOption({"ptt", "Push to talk: open the microphone for one request"});
   parser.addOption({"self-test", "Exercise the app offscreen and report"});
   parser.addOption({"config", "Use a specific preferences file", "path"});
   parser.addOption({"capture-dir", "Write test captures here", "path"});
@@ -126,7 +127,9 @@ int main(int argc, char **argv) {
       "scatter, dash, demo, rest, reset, quit; and for the assistant: "
       "listen, ask <words>, stop, doctor, timeline, setup, "
       "profile export|import <file>, wakeword <command> (see \"nala wakeword\"), "
-      "memory pause [minutes] | resume | status");
+      "memory pause [minutes] | resume | status | clear screen [all], "
+      "model status|list|main <name>|fast <name>|speed <name>|mode <m>|thinking <t>|"
+      "routing on|off|unload, stt status, tts status, latency, benchmark");
   parser.process(app);
 
   // Both capture modes drive the animation clock themselves, so they share the
@@ -136,9 +139,11 @@ int main(int argc, char **argv) {
                        parser.isSet("film");
   const bool preview = parser.isSet("preview") || testing;
   // Everything after the command is its argument: `nala ask what time is it`.
-  const QString requested = parser.positionalArguments().isEmpty()
-                                ? QStringLiteral("run")
-                                : parser.positionalArguments().join(' ');
+  const QString requested = parser.isSet("ptt")
+                                ? QStringLiteral("listen")
+                                : parser.positionalArguments().isEmpty()
+                                      ? QStringLiteral("run")
+                                      : parser.positionalArguments().join(' ');
   const QString socketPath = runtimeSocket();
 
   // A profile path means the caller's directory, not the running copy's.
@@ -164,9 +169,23 @@ int main(int argc, char **argv) {
       client.write(line.toUtf8().left(4000) + "\n");
       client.flush();
       client.waitForBytesWritten(1000);
-      // The health check waits on the network, so give it longer.
-      if (client.waitForReadyRead(line == "doctor" ? 12000 : 2500))
-        QTextStream(stdout) << client.readAll();
+      // Health checks and model queries wait on the network, so give them
+      // longer; a benchmark runs for minutes and prints as it goes.
+      const QString verb = line.section(' ', 0, 0);
+      const bool slow = verb == "doctor" || verb == "model" || verb == "stt" ||
+                        verb == "tts";
+      const bool benchmark = verb == "benchmark";
+      QTextStream out(stdout);
+      if (client.waitForReadyRead(benchmark ? 600000 : slow ? 20000 : 2500)) {
+        out << client.readAll();
+        out.flush();
+        while (client.state() == QLocalSocket::ConnectedState &&
+               client.waitForReadyRead(benchmark ? 1800000 : 500)) {
+          out << client.readAll();
+          out.flush();
+        }
+        out << client.readAll();
+      }
       return 0;
     }
     // Not running: a profile can still be read or written straight from the
@@ -210,9 +229,36 @@ int main(int argc, char **argv) {
           << (error.isEmpty() ? QStringLiteral("ok") : error) << "\n";
       return error.isEmpty() ? 0 : 1;
     }
+    // Choosing models needs no running Nala: the settings file is enough, and
+    // she reads it on start.
+    if (requested.startsWith("model ")) {
+      const QString what = requested.section(' ', 1, 1);
+      const QString value = requested.section(' ', 2).trimmed();
+      const QHash<QString, QString> keys = {
+          {"main", "llm.mainModel"}, {"fast", "llm.fastModel"},
+          {"speed", "llm.speedModel"}, {"mode", "llm.mode"},
+          {"switch", "llm.mode"}, {"thinking", "llm.thinking"}};
+      if (keys.contains(what) && !value.isEmpty()) {
+        AssistantSettings settings(
+            (parser.value("config").isEmpty()
+                 ? QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/nala"
+                 : QFileInfo(parser.value("config")).absolutePath()) +
+            "/assistant.json");
+        const bool ok = settings.set(keys.value(what), value);
+        settings.flush();
+        QTextStream(ok ? stdout : stderr)
+            << (ok ? QStringLiteral("%1 = %2 (Nala is not running; this applies when she starts)")
+                         .arg(keys.value(what), value)
+                   : QStringLiteral("%1 is not valid for %2").arg(value, what))
+            << "\n";
+        return ok ? 0 : 1;
+      }
+    }
     if (requested == "status" || requested == "quit" ||
         requested == "doctor" || requested.startsWith("ask ") ||
-        requested.startsWith("memory")) {
+        requested.startsWith("memory") || requested.startsWith("model") ||
+        requested == "stt status" || requested == "tts status" ||
+        requested == "latency" || requested == "benchmark") {
       QTextStream(stderr) << "Nala is not running.\n";
       return 1;
     }
@@ -431,6 +477,43 @@ int main(int argc, char **argv) {
                                       ? assistant.exportProfile(path)
                                       : assistant.importProfile(path);
             reply(error.isEmpty() ? QStringLiteral("ok") : error);
+          } else if (verb == "model") {
+            QPointer<QLocalSocket> guard(client);
+            assistant.modelCommand(rest, [guard, reply](const QString &text) {
+              if (guard)
+                reply(text.trimmed());
+            });
+          } else if (verb == "stt" || verb == "tts") {
+            if (rest != "status" && !rest.isEmpty()) {
+              reply(QStringLiteral("usage: nala %1 status").arg(verb));
+              return;
+            }
+            QPointer<QLocalSocket> guard(client);
+            const auto answer = [guard, reply](const QString &text) {
+              if (guard)
+                reply(text.trimmed());
+            };
+            if (verb == "stt")
+              assistant.sttStatus(answer);
+            else
+              assistant.ttsStatus(answer);
+          } else if (verb == "latency") {
+            reply(assistant.latencyReport());
+          } else if (verb == "benchmark") {
+            // Minutes long: lines go out as they happen, and the socket stays
+            // open until the table is printed.
+            QPointer<QLocalSocket> guard(client);
+            assistant.benchmark(
+                [guard](const QString &text) {
+                  if (guard) {
+                    guard->write(text.toUtf8() + "\n");
+                    guard->flush();
+                  }
+                },
+                [guard] {
+                  if (guard)
+                    guard->disconnectFromServer();
+                });
           } else if (verb == "hear") {
             const QString error = assistant.hearFile(rest);
             reply(error.isEmpty() ? QStringLiteral("ok") : error);
@@ -446,8 +529,17 @@ int main(int argc, char **argv) {
               assistant.memory()->pause(rest.section(' ', 1, 1).toInt());
             } else if (what == "resume") {
               assistant.memory()->resume();
+            } else if (what == "clear") {
+              const QString target = rest.section(' ', 1, 1);
+              if (target != "screen") {
+                reply("usage: nala memory clear screen [all]   (screen history only; "
+                      "notes stay, and pinned memories stay unless you say \"all\")");
+                return;
+              }
+              reply(assistant.clearScreenMemory(rest.section(' ', 2, 2) == "all"));
+              return;
             } else if (what != "status" && !what.isEmpty()) {
-              reply("usage: nala memory pause [minutes] | resume | status");
+              reply("usage: nala memory pause [minutes] | resume | status | clear screen [all]");
               return;
             }
             reply(QStringLiteral("screen memory %1, %2 memories, %3")

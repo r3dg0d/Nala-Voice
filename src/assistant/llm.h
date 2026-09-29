@@ -52,6 +52,13 @@ public:
     QString thinking = QStringLiteral("off");
     // "auto" asks the server who it is; "ollama" and "llamacpp" say so.
     QString provider = QStringLiteral("auto");
+    // Ollama only. Its OpenAI-compatible endpoint cannot set the context
+    // window (a model whose Modelfile says 131072 loads at 131072, spills onto
+    // system RAM and answers slowly), thinking precisely, or keep_alive; its
+    // native /api/chat can. Off means use the OpenAI-compatible endpoint.
+    bool native = true;
+    int numCtx = 0;      // 0: whatever the model or server says
+    QString keepAlive;   // "30m", "-1" (forever); empty: the server's default
   };
   enum class Server { Unknown, Ollama, Other };
 
@@ -106,6 +113,13 @@ public:
   // GET /models. Calls back with the ids, or an error.
   void listModels(std::function<void(QStringList, QString)> done);
 
+  // Pure: the messages in Ollama's native shape. Images become a list of
+  // base64 strings, tool-call arguments become objects, tool results name the
+  // tool they answer (the id the model was given is looked up).
+  static QJsonArray ollamaMessages(const QJsonArray &openai);
+  // Pure: a native /api/chat response as an OpenAI-shaped one, for parse().
+  static QJsonObject fromNativeResponse(const QJsonObject &native);
+
   // Pure: turn a /chat/completions response into a reply.
   static LlmReply parse(const QJsonObject &response, QString *error = nullptr);
   // Remove <think>…</think> reasoning some models (Qwen among them) emit.
@@ -120,6 +134,9 @@ signals:
   // and to the first visible answer token.
   void prefillDone(qint64 ms);
   void firstToken(qint64 ms);
+  // Native Ollama only, at the end of a reply: what the server measured.
+  void stats(int promptTokens, int outputTokens, qint64 loadMs, qint64 promptMs,
+             qint64 outputMs);
   // Reasoning tokens seen this reply, for the log and the benchmark.
   void usage(int completionTokens, int reasoningTokens);
 
@@ -130,6 +147,12 @@ private:
             bool extras = true);
   void start(const QJsonArray &messages, const QJsonArray &tools);
   void takeStream(QNetworkReply *reply);
+  void takeNativeStream(QNetworkReply *reply);
+  QJsonObject openAiBody(const QJsonArray &messages, const QJsonArray &tools,
+                         bool streaming, bool extras) const;
+  QJsonObject nativeBody(const QJsonArray &messages, const QJsonArray &tools,
+                         bool streaming, bool extras) const;
+  QNetworkRequest nativeRequest(const QString &path) const;
   QJsonObject streamedResponse() const;
   QString effectiveThinking() const;
   void detect(std::function<void()> done);
@@ -140,6 +163,7 @@ private:
   Server m_server = Server::Unknown;
   QStringList m_capabilities;
   bool m_capabilitiesKnown = false;
+  bool m_capabilitiesFromServer = false; // not just guessed from the name
   bool m_extrasRejected = false; // the server refused our thinking switch
   QPointer<QNetworkReply> m_reply;
   // Bumped by every chat() and cancel(), so a model lookup that finishes

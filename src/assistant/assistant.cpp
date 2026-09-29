@@ -348,6 +348,9 @@ void Assistant::applySettings(const QString &key) {
   llm.preferred = m_settings->list("llm.preferred");
   llm.thinking = m_settings->string("llm.thinking");
   llm.provider = m_settings->string("llm.provider");
+  llm.native = m_settings->flag("llm.ollamaNative");
+  llm.numCtx = m_settings->integer("llm.contextTokens");
+  llm.keepAlive = m_settings->string("llm.keepAlive");
   m_llm->configure(llm);
   m_summaryLlm->configure(llm);
   m_benchLlm->configure(llm);

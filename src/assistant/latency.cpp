@@ -44,11 +44,20 @@ QString LatencyTrace::report() const {
   return out;
 }
 
+// Keys are short and never contain "token": the event log redacts any key
+// that looks like a credential, and a timing is not one.
+static const char *jsonKey(int stage) {
+  static const char *keys[] = {"wake_ms", "vad_ms", "stt_ms", "route_ms",
+                               "llm_first_ms", "llm_done_ms", "tts_first_ms",
+                               "action_ms"};
+  return keys[stage];
+}
+
 QJsonObject LatencyTrace::toJson() const {
   QJsonObject o;
   for (int s = 0; s < StageCount; ++s)
     if (has(Stage(s)))
-      o.insert(stageName(Stage(s)).toLower().replace(' ', '_'), double(m_ms[s]));
+      o.insert(QLatin1String(jsonKey(s)), double(m_ms[s]));
   o.insert("perceived_ms", double(perceived()));
   return o;
 }

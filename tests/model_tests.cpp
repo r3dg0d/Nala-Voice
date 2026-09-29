@@ -33,7 +33,7 @@ namespace {
 // A minimal HTTP server: records each request body and answers per path.
 class FakeServer : public QObject {
 public:
-  struct Reply { int status = 200; QByteArray body; QStringList events; };
+  struct Reply { int status = 200; QByteArray body; QStringList events; bool ndjson = false; };
   QTcpServer server;
   QMap<QString, Reply> replies;          // by path
   QList<QJsonObject> chatBodies;         // parsed /chat/completions requests
@@ -41,6 +41,8 @@ public:
   QMap<QString, QByteArray> lastBody;    // by path
   // When set, decides the reply for /chat/completions from the request body.
   std::function<Reply(const QJsonObject &)> chat;
+  // The same for Ollama's native /api/chat (answers as NDJSON lines).
+  std::function<Reply(const QJsonObject &)> nativeChat;
   FakeServer() {
     server.listen(QHostAddress::LocalHost);
     connect(&server, &QTcpServer::newConnection, this, [this] {
@@ -68,11 +70,15 @@ private:
     const QString path = QString::fromLatin1(head.split(' ').value(1));
     paths << path;
     lastBody[path] = body;
-    if (path.endsWith("/chat/completions"))
+    if (path.endsWith("/chat/completions") || path == "/api/chat")
       chatBodies << QJsonDocument::fromJson(body).object();
     Reply r = replies.value(path, Reply{404, "{}", {}});
     if (path.endsWith("/chat/completions") && chat)
       r = chat(chatBodies.last());
+    if (path == "/api/chat" && nativeChat) {
+      r = nativeChat(chatBodies.last());
+      r.ndjson = true;
+    }
     QByteArray out = "HTTP/1.1 " + QByteArray::number(r.status) + " X\r\n"
                      "Connection: close\r\n";
     out += r.events.isEmpty() ? "Content-Type: application/json\r\n\r\n" + r.body
@@ -81,10 +87,12 @@ private:
     sock->flush();
     // Events go out one at a time so the client really sees them arrive.
     auto events = QSharedPointer<QStringList>::create(r.events);
+    const bool ndjson = r.ndjson;
     auto *timer = new QTimer(sock);
-    connect(timer, &QTimer::timeout, sock, [sock, events, timer] {
+    connect(timer, &QTimer::timeout, sock, [sock, events, timer, ndjson] {
       if (events->isEmpty()) { sock->disconnectFromHost(); timer->stop(); return; }
-      sock->write("data: " + events->takeFirst().toUtf8() + "\n\n");
+      sock->write(ndjson ? events->takeFirst().toUtf8() + "\n"
+                         : "data: " + events->takeFirst().toUtf8() + "\n\n");
       sock->flush();
     });
     if (r.events.isEmpty()) sock->disconnectFromHost(); else timer->start(5);
@@ -353,6 +361,18 @@ private slots:
     QCOMPARE(t.perceived(), qint64(0));
   }
 
+  void latencyKeysSurviveTheLogRedactor() {
+    LatencyTrace t;
+    for (int s = 0; s < LatencyTrace::StageCount; ++s)
+      t.set(LatencyTrace::Stage(s), 10);
+    for (const QString &key : t.toJson().keys()) {
+      QVERIFY2(!key.contains("token", Qt::CaseInsensitive), qPrintable(key));
+      QVERIFY2(!key.contains("key", Qt::CaseInsensitive), qPrintable(key));
+      QVERIFY2(!key.contains("secret", Qt::CaseInsensitive), qPrintable(key));
+    }
+    QCOMPARE(t.toJson().value("llm_first_ms").toInt(), 10);
+  }
+
   void commandsSkipTheModelAndVoice() {
     LatencyTrace t;
     t.set(LatencyTrace::Stt, 300);
@@ -510,6 +530,7 @@ private slots:
       LlmClient llm(&net);
       auto c = configFor(srv, "gpt-oss:20b");
       c.endpoint = srv.url("/v1");
+      c.native = false; // this one is about the OpenAI-compatible endpoint
       llm.configure(c);
       QSignalSpy done(&llm, &LlmClient::replied);
       llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
@@ -540,6 +561,171 @@ private slots:
     QCOMPARE(srv.chatBodies.size(), 2);
     QCOMPARE(srv.chatBodies.at(0).value("model").toString(), QString("big"));
     QCOMPARE(srv.chatBodies.at(1).value("model").toString(), QString("small"));
+  }
+
+  // --- Ollama's native API ---------------------------------------------------------
+  static QString nd(const QString &content, const QString &thinking = QString()) {
+    QString msg = "{\"role\":\"assistant\",\"content\":\"" + content + "\"";
+    if (!thinking.isEmpty())
+      msg += ",\"thinking\":\"" + thinking + "\"";
+    return "{\"model\":\"m\",\"message\":" + msg + "},\"done\":false}";
+  }
+  static QString ndDone() {
+    return "{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},"
+           "\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":120,\"eval_count\":40,"
+           "\"load_duration\":2000000000,\"prompt_eval_duration\":300000000,"
+           "\"eval_duration\":800000000}";
+  }
+  static LlmClient::Config nativeConfig(const FakeServer &s, const QString &model) {
+    LlmClient::Config c = configFor(s, model);
+    c.numCtx = 16384;
+    c.keepAlive = "30m";
+    return c;
+  }
+
+  void nativeAskedForTheContextWeWant() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/api/chat"].body = "{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"done\":true}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(nativeConfig(srv, "qwen3.8:27b"));
+    llm.setThinkingOverride("off");
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    const QJsonObject body = QJsonDocument::fromJson(srv.lastBody["/api/chat"]).object();
+    QCOMPARE(body.value("options").toObject().value("num_ctx").toInt(), 16384);
+    QCOMPARE(body.value("keep_alive").toString(), QString("30m"));
+    QCOMPARE(body.value("think").toBool(true), false);
+    QVERIFY(!srv.paths.contains("/v1/chat/completions"));
+    QCOMPARE(done.first().first().value<LlmReply>().content, QString("ok"));
+  }
+
+  void nativeStreamsAndReportsTimings() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/api/chat"].events = {nd("", "let me think"), nd("Sure. "), nd("Done."), ndDone()};
+    srv.replies["/api/chat"].ndjson = true;
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(nativeConfig(srv, "m"));
+    QStringList deltas;
+    connect(&llm, &LlmClient::delta, this, [&](const QString &t) { deltas << t; });
+    QSignalSpy first(&llm, &LlmClient::firstToken);
+    QSignalSpy prefill(&llm, &LlmClient::prefillDone);
+    QSignalSpy stats(&llm, &LlmClient::stats);
+    QSignalSpy usage(&llm, &LlmClient::usage);
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    QCOMPARE(done.first().first().value<LlmReply>().content, QString("Sure. Done."));
+    QCOMPARE(deltas.join(""), QString("Sure. Done."));
+    QCOMPARE(prefill.size(), 1);   // the thinking token counted as the first token of any kind
+    QCOMPARE(first.size(), 1);     // ...and the first visible one came later
+    QCOMPARE(stats.size(), 1);
+    QCOMPARE(stats.first().at(0).toInt(), 120);
+    QCOMPARE(stats.first().at(1).toInt(), 40);
+    QCOMPARE(stats.first().at(2).toLongLong(), qint64(2000));
+    QCOMPARE(stats.first().at(4).toLongLong(), qint64(800));
+    QCOMPARE(usage.first().at(0).toInt(), 40); // the server's count, not one per chunk
+    QCOMPARE(usage.first().at(1).toInt(), 1);
+  }
+
+  void nativeToolCallsAndTheirResults() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/api/chat"].events = {
+        "{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":"
+        "{\"name\":\"volume_set\",\"arguments\":{\"level\":25}}}]},\"done\":false}",
+        ndDone()};
+    srv.replies["/api/chat"].ndjson = true;
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(nativeConfig(srv, "m"));
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", "quieter"}}});
+    QVERIFY(done.wait(5000));
+    const auto reply = done.first().first().value<LlmReply>();
+    QCOMPARE(reply.toolCalls.size(), 1);
+    QCOMPARE(reply.toolCalls.first().name, QString("volume_set"));
+    QCOMPARE(reply.toolCalls.first().arguments.value("level").toInt(), 25);
+    QCOMPARE(reply.finishReason, QString("tool_calls"));
+  }
+
+  void nativeRetriesWithoutThinkWhenRefused() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    int calls = 0;
+    srv.chat = nullptr;
+    srv.replies["/api/chat"] = {400, "{\"error\":\"\\\"m\\\" does not support thinking\"}", {}};
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(nativeConfig(srv, "m"));
+    llm.setThinkingOverride("on");
+    QSignalSpy failed(&llm, &LlmClient::failed);
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    // The server keeps refusing here, so the second (think-less) try fails too;
+    // what matters is that it was asked again without "think".
+    QVERIFY(failed.wait(5000));
+    Q_UNUSED(calls);
+    int chats = srv.paths.count("/api/chat");
+    QCOMPARE(chats, 2);
+    QVERIFY(failed.first().first().toString().contains("does not support thinking"));
+  }
+
+  void nativeGptOssTakesALevel() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/api/chat"].body = "{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"done\":true}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(nativeConfig(srv, "gpt-oss:20b"));
+    llm.setThinkingOverride("off");
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    QCOMPARE(QJsonDocument::fromJson(srv.lastBody["/api/chat"]).object().value("think").toString(),
+             QString("low"));
+  }
+
+  void nativeIsSkippedWhenSwitchedOff() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/v1/chat/completions"].body =
+        "{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    auto c = nativeConfig(srv, "m");
+    c.native = false;
+    llm.configure(c);
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    QVERIFY(!srv.paths.contains("/api/chat"));
+  }
+
+  void convertsMessagesToTheNativeShape() {
+    const QJsonArray in{
+        QJsonObject{{"role", "system"}, {"content", "be brief"}},
+        QJsonObject{{"role", "user"}, {"content", QJsonArray{
+            QJsonObject{{"type", "text"}, {"text", "what is this"}},
+            QJsonObject{{"type", "image_url"},
+                        {"image_url", QJsonObject{{"url", "data:image/jpeg;base64,QUJD"}}}}}}},
+        QJsonObject{{"role", "assistant"}, {"content", ""}, {"tool_calls", QJsonArray{
+            QJsonObject{{"id", "call_9"}, {"type", "function"},
+                        {"function", QJsonObject{{"name", "volume_get"}, {"arguments", "{\"a\":1}"}}}}}}},
+        QJsonObject{{"role", "tool"}, {"tool_call_id", "call_9"}, {"content", "{\"ok\":true}"}}};
+    const QJsonArray out = LlmClient::ollamaMessages(in);
+    QCOMPARE(out.size(), 4);
+    QCOMPARE(out.at(1).toObject().value("content").toString(), QString("what is this"));
+    QCOMPARE(out.at(1).toObject().value("images").toArray().first().toString(), QString("QUJD"));
+    const QJsonObject call = out.at(2).toObject().value("tool_calls").toArray().first().toObject()
+                                 .value("function").toObject();
+    QCOMPARE(call.value("name").toString(), QString("volume_get"));
+    QCOMPARE(call.value("arguments").toObject().value("a").toInt(), 1); // a string became an object
+    QCOMPARE(out.at(3).toObject().value("tool_name").toString(), QString("volume_get"));
   }
 
   void catalogueQueriesTheServer() {
@@ -918,6 +1104,12 @@ private:
         r.events = streamOf("Answer from " + body.value("model").toString() + ".");
         return r;
       };
+      srv.nativeChat = [](const QJsonObject &body) {
+        FakeServer::Reply r;
+        r.events = {ModelTests::nd("Answer from " + body.value("model").toString() + "."),
+                    ModelTests::ndDone()};
+        return r;
+      };
     }
     QString modelOf(int i) const { return srv.chatBodies.value(i).value("model").toString(); }
     bool waitForReplies(int n) {
@@ -1047,10 +1239,12 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
     rig.a->ask("explain how nix flakes work in detail");
     QTRY_COMPARE_WITH_TIMEOUT(said.size(), 2, 5000);
-    // Ollama: the fast model gets its floor, the main model on a hard question
-    // gets no "none" switch at all (thinking on = the server's default).
-    QCOMPARE(rig.srv.chatBodies.at(0).value("reasoning_effort").toString(), QString("low"));
-    QVERIFY(!rig.srv.chatBodies.at(1).contains("reasoning_effort"));
+    // Ollama, native API: gpt-oss (the fast model) takes a level and cannot be
+    // switched off, so it gets its floor; the main model on a hard question
+    // thinks, and nothing about the reasoning reaches the answer.
+    QCOMPARE(rig.srv.chatBodies.at(0).value("think").toString(), QString("low"));
+    QVERIFY(rig.srv.chatBodies.at(1).value("think").toBool(false));
+    QCOMPARE(rig.srv.chatBodies.at(1).value("options").toObject().value("num_ctx").toInt(), 16384);
   }
 
   void speaksTheFirstSentenceWithoutWaitingForTheRest() {

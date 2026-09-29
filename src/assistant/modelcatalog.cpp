@@ -40,6 +40,7 @@ QVector<Loaded> parsePs(const QJsonObject &json) {
     l.sizeBytes = qint64(m.value("size").toDouble());
     l.vramBytes = qint64(m.value("size_vram").toDouble());
     l.expires = m.value("expires_at").toString();
+    l.contextLength = m.value("context_length").toInt();
     out.append(l);
   }
   return out;

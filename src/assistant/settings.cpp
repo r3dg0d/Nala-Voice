@@ -76,6 +76,13 @@ const QVector<Spec> &specs() {
       // otherwise (a spoken reply should not wait on hidden thinking).
       {"llm.thinking", Kind::Choice, QStringLiteral("auto"), 0, 0,
        {"off", "on", "auto", "server"}},
+      // Talk to Ollama through its native chat API, which can set the context
+      // window (llm.contextTokens), keep_alive and thinking exactly. Off uses
+      // the OpenAI-compatible endpoint, which can do none of those.
+      {"llm.ollamaNative", Kind::Bool, true},
+      // How long Ollama keeps a model in memory after the last request, so the
+      // next one does not wait for a reload ("30m", "-1" for forever).
+      {"llm.keepAlive", Kind::String, QStringLiteral("30m")},
       // ollama / llamacpp skip the server probe; auto asks it who it is.
       {"llm.provider", Kind::Choice, QStringLiteral("auto"), 0, 0,
        {"auto", "ollama", "llamacpp"}},

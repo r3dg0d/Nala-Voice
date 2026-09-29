@@ -22,6 +22,7 @@ struct Loaded {
   qint64 sizeBytes = 0;     // total in memory
   qint64 vramBytes = 0;     // of which on the GPU
   QString expires;
+  int contextLength = 0; // the window it was loaded with (Ollama /api/ps)
   // 100 = entirely on the GPU. Below that, part of it runs from system RAM,
   // which is what makes an interactive voice reply slow.
   int gpuPercent() const {
