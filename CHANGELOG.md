@@ -6,6 +6,10 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.4 — 2026-09-29
+
+TTS recovery after chain cooldown, and safer Fish/Qwen endpoint path joins.
+
 ### Fixed
 
 - **TTS voice recovery**: after Qwen3-TTS / Fish Speech (or the speaker) fail,

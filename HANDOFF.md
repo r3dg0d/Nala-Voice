@@ -3,8 +3,11 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.3+)
+## Where things stand (1.3.4+)
 
+1.3.4 clears `m_voiceBroken` after the TtsChain cooldown so a returning voice
+server is found without a settings tweak, and joins Fish/Qwen `/v1/...` paths
+without doubling slashes when endpoints have a trailing slash.
 1.3.3 adds a barge-in echo guard (stricter wake gate while she speaks with
 `wake.bargeIn`) and ships the doctor exit contract: `nala doctor` exits `1`
 when any required line is `FAIL` (optional `--` lines do not).
@@ -18,7 +21,7 @@ and NixOS docs show how to pin a release tag.
 main / fast / speed routing with fallback, the native Ollama API, streaming
 speech, GPU-aware loading, context summarisation, the system tools, Qwen3-TTS
 with a Fish Speech fallback, timing, `nala model|benchmark|latency|stt|tts`.
-`nala-model-tests` (142 tests, no server or GPU) covers it against fake HTTP
+`nala-model-tests` (146 tests, no server or GPU) covers it against fake HTTP
 servers.
 
 **Verified live** (RTX 4090, Ollama 0.34.3, a local Qwen 27B and gemma4-coder):
@@ -26,8 +29,8 @@ routing to the right model, VRAM eviction before a load, the 16384 context at
 100% GPU, warm first token 449 ms, `nala model status|list`, `nala doctor`,
 `nala benchmark`, `nala latency`, whisper-server and ydotoold as services.
 
-**TTS recovery (1.3.3+ Unreleased):** after a TTS/speaker failure, `m_voiceBroken`
-clears when the TtsChain cooldown ends so a returning server is found without a
+**TTS recovery (1.3.4):** after a TTS/speaker failure, `m_voiceBroken` clears
+when the TtsChain cooldown ends so a returning server is found without a
 settings tweak; covered by offline FakeServer tests.
 
 **Not verified:** a live Qwen3-TTS server (none installed; the client is written
