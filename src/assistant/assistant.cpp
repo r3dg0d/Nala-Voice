@@ -112,6 +112,15 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
     settle();
   });
 
+  connect(m_mic, &Microphone::lost, this, [this](const QString &why) {
+    m_log->record("error", "microphone-lost", {{"reason", why}});
+    emit stateChanged();
+  });
+  connect(m_mic, &Microphone::recovered, this, [this] {
+    m_log->record("stt", "microphone-recovered");
+    emit stateChanged();
+  });
+
   m_speaker = new Speaker(this);
   connect(m_speaker, &Speaker::levelChanged, this, [this](double level) {
     m_voiceLevel = level;

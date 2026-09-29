@@ -2,6 +2,7 @@
 #include "audioutil.h"
 
 #include <QAudioFormat>
+#include <QMediaDevices>
 #include <QByteArray>
 #include <QObject>
 #include <QPointer>
@@ -28,10 +29,20 @@ public:
   bool start(const QString &device, const audio::VoiceActivity::Config &vad);
   void stop();
   bool active() const { return m_source != nullptr; }
+  // True while the device has gone away and we are waiting to reopen it.
+  bool reconnecting() const { return m_wantOpen && !m_source; }
   double level() const { return m_level; }
+
+  // Delay before reconnect attempt `attempt` (0-based): 1 s doubling to 15 s.
+  static int retryDelayMs(int attempt);
 
   // Feed samples as if they came from the device. For tests.
   void inject(const QVector<int16_t> &samples16k);
+  // Behave as if the device died under us. For tests.
+  void simulateLostForTest(const QString &reason) {
+    m_wantOpen = true;
+    lose(reason);
+  }
 
 signals:
   // Every block of 16 kHz mono audio as it arrives, for the wake-word
@@ -41,12 +52,29 @@ signals:
   void utterance(const QByteArray &pcm16k);
   void levelChanged(double level);
   void failed(const QString &reason);
+  // The device vanished or errored mid-session; we keep retrying quietly.
+  void lost(const QString &reason);
+  // A lost microphone is open again.
+  void recovered();
 
 private:
+  bool open(const QString &device, const audio::VoiceActivity::Config &vad,
+            bool announceFailure);
   void read();
   void process(const QVector<int16_t> &mono);
+  void lose(const QString &reason);
+  void retry();
+  void onDevicesChanged();
 
   std::unique_ptr<QAudioSource> m_source;
+  QMediaDevices m_devices;
+  QTimer m_retry;
+  QString m_device;
+  QByteArray m_openId; // id of the device actually opened
+  audio::VoiceActivity::Config m_vadConfig;
+  bool m_wantOpen = false; // start() was called and stop() has not been
+  bool m_wasLost = false;
+  int m_attempt = 0;
   QPointer<QIODevice> m_io;
   QAudioFormat m_format;
   audio::VoiceActivity m_vad;

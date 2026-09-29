@@ -23,7 +23,12 @@ QAudioDevice pick(const QList<QAudioDevice> &all, const QAudioDevice &fallback,
 
 // --- microphone ------------------------------------------------------------
 
-Microphone::Microphone(QObject *parent) : QObject(parent) {}
+Microphone::Microphone(QObject *parent) : QObject(parent) {
+  m_retry.setSingleShot(true);
+  connect(&m_retry, &QTimer::timeout, this, &Microphone::retry);
+  connect(&m_devices, &QMediaDevices::audioInputsChanged, this,
+          &Microphone::onDevicesChanged);
+}
 Microphone::~Microphone() { stop(); }
 
 QStringList Microphone::devices() {
@@ -33,15 +38,30 @@ QStringList Microphone::devices() {
   return names;
 }
 
+int Microphone::retryDelayMs(int attempt) {
+  return std::min(15000, 1000 << std::clamp(attempt, 0, 4));
+}
+
 bool Microphone::start(const QString &device,
                        const audio::VoiceActivity::Config &vad) {
   stop();
+  m_device = device;
+  m_vadConfig = vad;
+  return open(device, vad, true);
+}
+
+bool Microphone::open(const QString &device,
+                      const audio::VoiceActivity::Config &vad,
+                      bool announceFailure) {
+  const auto fail = [&](const QString &why) {
+    if (announceFailure)
+      emit failed(why);
+    return false;
+  };
   const QAudioDevice input = pick(QMediaDevices::audioInputs(),
                                   QMediaDevices::defaultAudioInput(), device);
-  if (input.isNull()) {
-    emit failed(QStringLiteral("No microphone found."));
-    return false;
-  }
+  if (input.isNull())
+    return fail(QStringLiteral("No microphone found."));
 
   // Ask for what the recogniser wants, and convert whatever we get instead.
   QAudioFormat format;
@@ -53,10 +73,8 @@ bool Microphone::start(const QString &device,
   if (format.sampleFormat() != QAudioFormat::Int16 &&
       format.sampleFormat() != QAudioFormat::Float) {
     format.setSampleFormat(QAudioFormat::Int16);
-    if (!input.isFormatSupported(format)) {
-      emit failed(QStringLiteral("The microphone offers no usable format."));
-      return false;
-    }
+    if (!input.isFormatSupported(format))
+      return fail(QStringLiteral("The microphone offers no usable format."));
   }
 
   m_format = format;
@@ -66,14 +84,96 @@ bool Microphone::start(const QString &device,
   m_io = m_source->start();
   if (!m_io) {
     m_source.reset();
-    emit failed(QStringLiteral("Could not open the microphone."));
-    return false;
+    return fail(QStringLiteral("Could not open the microphone."));
   }
+  m_openId = input.id();
+  m_wantOpen = true;
   connect(m_io, &QIODevice::readyRead, this, &Microphone::read);
+  // A source that stops with an error (unplugged, PipeWire restarted) would
+  // otherwise leave us "open" and deaf.
+  connect(m_source.get(), &QAudioSource::stateChanged, this,
+          [this](QAudio::State state) {
+            if (state == QAudio::StoppedState && m_source &&
+                m_source->error() != QAudio::NoError)
+              lose(QStringLiteral("The microphone stopped (audio error %1).")
+                       .arg(int(m_source->error())));
+          });
   return true;
 }
 
+// The device died. Drop the source and keep trying to get it back; a headset
+// being unplugged should not need a settings toggle to undo.
+void Microphone::lose(const QString &reason) {
+  if (!m_wantOpen)
+    return;
+  if (m_source) {
+    // Disconnect first: stop() emits stateChanged and we must not re-enter.
+    m_source->disconnect(this);
+    m_source->stop();
+    m_source.reset();
+  }
+  m_io = nullptr;
+  m_vad.reset();
+  if (m_level != 0.0) {
+    m_level = 0.0;
+    emit levelChanged(0.0);
+  }
+  if (!m_wasLost) {
+    m_wasLost = true;
+    emit lost(reason);
+  }
+  m_retry.start(retryDelayMs(m_attempt++));
+}
+
+void Microphone::retry() {
+  if (!m_wantOpen || m_source)
+    return;
+  if (open(m_device, m_vadConfig, false)) {
+    m_attempt = 0;
+    m_wasLost = false;
+    emit recovered();
+  } else {
+    m_retry.start(retryDelayMs(m_attempt++));
+  }
+}
+
+// A device appeared or disappeared. Reopen at once if we are waiting; and if we
+// follow the system default, move to a new default rather than staying on the
+// old one.
+void Microphone::onDevicesChanged() {
+  if (!m_wantOpen)
+    return;
+  if (!m_source) {
+    m_retry.stop();
+    retry();
+    return;
+  }
+  const QAudioDevice def = QMediaDevices::defaultAudioInput();
+  const bool present = [&] {
+    for (const QAudioDevice &d : QMediaDevices::audioInputs())
+      if (d.id() == m_openId)
+        return true;
+    return false;
+  }();
+  if (!present)
+    lose(QStringLiteral("The microphone was disconnected."));
+  else if (m_device.isEmpty() && !def.isNull() && def.id() != m_openId) {
+    m_source->disconnect(this);
+    m_source->stop();
+    m_source.reset();
+    m_io = nullptr;
+    if (open(m_device, m_vadConfig, false))
+      emit recovered();
+    else
+      m_retry.start(retryDelayMs(m_attempt++));
+  }
+}
+
 void Microphone::stop() {
+  m_wantOpen = false;
+  m_wasLost = false;
+  m_attempt = 0;
+  m_retry.stop();
   if (m_source) {
     m_source->stop();
     m_source.reset();

@@ -5,6 +5,10 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.8+)
 
+Unreleased: `Microphone` reconnects itself after a device loss (backoff, device
+list watch, follows a changed system default); unit-tested via a loss hook only —
+a real unplug is **not verified live**.
+
 Unreleased: `nala tts status` syncs the sticky voice-broken flag with live
 Qwen/Fish probes (same `/v1/models` and `/v1/health` paths as doctor) — clear
 when an applicable engine answers; mark broken when none do. Engine `none`

@@ -2,6 +2,7 @@
 // microphone, a compositor, or a model server. Run with ctest, or directly:
 //   QT_QPA_PLATFORM=offscreen build/nala-assistant-tests
 #include "assistant.h"
+#include "audio.h"
 #include "audioutil.h"
 #include "commandrouter.h"
 #include "desktop.h"
@@ -1724,6 +1725,32 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
     QVERIFY2(report.contains("Voice is off after an error"), qPrintable(report));
     QVERIFY(assistant.voiceBrokenForTest());
+  }
+
+  void microphoneRetryBackoffDoublesAndCaps() {
+    QCOMPARE(Microphone::retryDelayMs(0), 1000);
+    QCOMPARE(Microphone::retryDelayMs(1), 2000);
+    QCOMPARE(Microphone::retryDelayMs(3), 8000);
+    QCOMPARE(Microphone::retryDelayMs(4), 15000);
+    QCOMPARE(Microphone::retryDelayMs(40), 15000);
+    QCOMPARE(Microphone::retryDelayMs(-1), 1000);
+  }
+
+  // A device that dies mid-session is reported once, keeps being retried, and
+  // stops being retried the moment the user turns the microphone off.
+  void microphoneLossIsReportedOnceAndStopCancelsRetry() {
+    Microphone mic;
+    QSignalSpy lost(&mic, &Microphone::lost);
+    QVERIFY(!mic.reconnecting());
+    mic.simulateLostForTest("unplugged");
+    QCOMPARE(lost.count(), 1);
+    QVERIFY(mic.reconnecting());
+    QVERIFY(!mic.active());
+    mic.simulateLostForTest("still gone");
+    QCOMPARE(lost.count(), 1);
+    QVERIFY(mic.reconnecting());
+    mic.stop();
+    QVERIFY(!mic.reconnecting());
   }
 
   void toolSchemaIsWellFormed() {

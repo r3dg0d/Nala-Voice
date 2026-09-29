@@ -67,6 +67,11 @@ server.
 For a wake word, see [WAKEWORD.md](WAKEWORD.md); `nala --ptt` tests everything
 after the wake word without it.
 
+If you unplug or switch the microphone while she is running, she keeps retrying
+in the background (1 s, doubling to 15 s) and picks it up again on her own;
+`microphone-lost` / `microphone-recovered` appear in the event log. A microphone
+left on "system default" follows the default when it changes.
+
 ## Clicking and typing do nothing
 
 `ydotool` needs its daemon and permission on `/dev/uinput`. On NixOS see
