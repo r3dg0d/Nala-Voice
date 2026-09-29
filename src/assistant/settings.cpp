@@ -78,7 +78,14 @@ const QVector<Spec> &specs() {
       {"llm.apiKey", Kind::String, QString()},
       {"llm.temperature", Kind::Real, 0.6, 0.0, 2.0},
       {"llm.maxTokens", Kind::Int, 800, 16, 32768},
-      {"llm.contextTurns", Kind::Int, 8, 0, 50},
+      // How much history the model sees. Older turns are folded into a short
+      // summary (llm.conversationSummary) rather than resent or dropped.
+      {"llm.contextTurns", Kind::Int, 20, 0, 50},
+      {"llm.contextTokens", Kind::Int, 16384, 2048, 262144},
+      {"llm.conversationSummary", Kind::Bool, true},
+      // A tool result is clipped to this before the model (and the history)
+      // sees it, so one huge listing cannot crowd out the conversation.
+      {"llm.maxToolOutputChars", Kind::Int, 12000, 500, 200000},
       {"llm.timeoutSec", Kind::Int, 90, 5, 600},
       // "auto" asks the server what the model can do, where it can say.
       {"llm.vision", Kind::Choice, QStringLiteral("auto"), 0, 0,
@@ -116,6 +123,8 @@ const QVector<Spec> &specs() {
       {"tts.device", Kind::String, QString()},
       {"tts.stylePrefix", Kind::String, QString()},
       {"tts.muted", Kind::Bool, false},
+      // Say "Volume 40." aloud after trivial commands, or just do them.
+      {"tts.confirmCommands", Kind::Bool, true},
       {"tts.volume", Kind::Real, 0.9, 0.0, 1.0},
 
       // Computer use.

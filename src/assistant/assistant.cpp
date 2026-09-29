@@ -231,6 +231,7 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   connect(m_memory, &ScreenMemory::changed, this, &Assistant::stateChanged);
   applySettings();
   registerTools();
+  registerSystemTools();
 
   if (!testing) {
     // Lightest first: the pet is already up; now the wake word and the
@@ -615,6 +616,8 @@ void Assistant::runFast(const Route &route) {
   if (a == "memory.pause") {
     const int minutes = args.value("minutes").toInt();
     m_memory->pause(minutes);
+    // "Stop recording" means every capture she is doing, video included.
+    stopVideoRecording();
     say(minutes > 0 ? QStringLiteral("Screen memory paused for %1.")
                           .arg(minutes % 60 == 0 && minutes >= 60
                                    ? QStringLiteral("%1 hour%2")
@@ -813,6 +816,8 @@ void Assistant::runFast(const Route &route) {
     });
     return;
   }
+  if (runSystemFast(route))
+    return;
   // An action the router knows but nothing here handles would be a bug.
   m_log->record("error", "unhandled-action", {{"action", a}});
   think(route.text);
@@ -927,7 +932,7 @@ void Assistant::runToolCalls() {
         {"tool_call_id", call.id},
         {"content", QString::fromUtf8(
                         QJsonDocument(result).toJson(QJsonDocument::Compact))
-                        .left(16000)}});
+                        .left(m_settings->integer("llm.maxToolOutputChars"))}});
     if (!image.isEmpty())
       m_turnMessages.append(QJsonObject{
           {"role", "user"},

@@ -1,12 +1,14 @@
 // Unit tests for the multi-model layer: routing, fallback, sentence streaming,
 // latency, context budgeting and the model/GPU catalogue. No server, no GPU.
 //   QT_QPA_PLATFORM=offscreen build/nala-model-tests
+#include "commandrouter.h"
 #include "contextbudget.h"
 #include "latency.h"
 #include "llm.h"
 #include "modelcatalog.h"
 #include "modelrouter.h"
 #include "sentencestream.h"
+#include "systemtools.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -558,6 +560,179 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(done, 8000);
     QVERIFY(installed.isEmpty());
     QVERIFY(!err.isEmpty());
+  }
+
+  // --- deterministic commands --------------------------------------------------
+  void routerHandlesVolumeAndMediaWithoutAModel_data() {
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<int>("number"); // level or delta; -999 when none
+    QTest::newRow("set") << "Turn the volume down to 40%." << "volume.set" << 40;
+    QTest::newRow("set words") << "set the volume to forty five percent" << "volume.set" << 45;
+    QTest::newRow("bare") << "volume 30" << "volume.set" << 30;
+    QTest::newRow("down") << "turn my volume down" << "volume.step" << -10;
+    QTest::newRow("up a bit") << "turn the volume up a bit" << "volume.step" << 5;
+    QTest::newRow("louder") << "louder" << "volume.step" << 10;
+    QTest::newRow("quieter") << "make it quieter" << "volume.step" << -10;
+    QTest::newRow("mute") << "mute" << "volume.mute" << -999;
+    QTest::newRow("unmute") << "unmute the sound" << "volume.unmute" << -999;
+    QTest::newRow("pause") << "pause" << "media.pause" << -999;
+    QTest::newRow("pause music") << "pause the music" << "media.pause" << -999;
+    QTest::newRow("resume") << "resume" << "media.play" << -999;
+    QTest::newRow("next") << "next song" << "media.next" << -999;
+    QTest::newRow("skip") << "skip" << "media.next" << -999;
+    QTest::newRow("previous") << "previous track" << "media.previous" << -999;
+    QTest::newRow("time") << "what time is it" << "time.now" << -999;
+    QTest::newRow("time2") << "what's the time" << "time.now" << -999;
+    QTest::newRow("date") << "what's the date" << "date.today" << -999;
+    QTest::newRow("lock") << "lock the screen" << "session.lock" << -999;
+    QTest::newRow("shot") << "take a screenshot" << "screenshot.take" << -999;
+    QTest::newRow("video") << "start a video recording" << "record.start" << -999;
+    QTest::newRow("stop video") << "stop the video recording" << "record.stop" << -999;
+  }
+  void routerHandlesVolumeAndMediaWithoutAModel() {
+    QFETCH(QString, text);
+    QFETCH(QString, action);
+    QFETCH(int, number);
+    CommandRouter router("nala");
+    const Route r = router.route("Nala, " + text, {"nala"});
+    QVERIFY2(r.matched, qPrintable(text));
+    QCOMPARE(r.action, action);
+    if (number != -999) {
+      const int got = r.args.contains("level") ? r.args.value("level").toInt()
+                                               : r.args.value("delta").toInt();
+      QCOMPARE(got, number);
+    }
+  }
+
+  void routerLeavesOpenEndedRequestsToTheModel_data() {
+    QTest::addColumn<QString>("text");
+    QTest::newRow("play a genre") << "play some jazz";
+    QTest::newRow("explain volume") << "explain how the volume knob works";
+    QTest::newRow("skip ahead") << "skip to the part about nix";
+    QTest::newRow("time zones") << "what time is it in tokyo when it is noon in paris";
+    QTest::newRow("record a song") << "record a song about cats";
+  }
+  void routerLeavesOpenEndedRequestsToTheModel() {
+    QFETCH(QString, text);
+    CommandRouter router("nala");
+    QVERIFY2(!router.route(text, {"nala"}).matched, qPrintable(text));
+  }
+
+  void privacyCommandsStillWin() {
+    // "Recording" and "pause" are also media words; the privacy switch is first.
+    CommandRouter router("nala");
+    QCOMPARE(router.route("pause screen memory").action, QString("memory.pause"));
+    QCOMPARE(router.route("stop screen recording").action, QString("memory.pause"));
+    QCOMPARE(router.route("start screen recording").action, QString("memory.resume"));
+    QCOMPARE(router.route("stop looking at my screen").action, QString("memory.pause"));
+  }
+
+  void buildsVolumeCommandsWithoutAShell() {
+    QString err;
+    auto c = systemtools::setVolume(40, &err);
+    QVERIFY(c);
+    QCOMPARE(c->program, QString("wpctl"));
+    QCOMPARE(c->args, (QStringList{"set-volume", "@DEFAULT_AUDIO_SINK@", "0.40"}));
+    QVERIFY(!systemtools::setVolume(101, &err));
+    QVERIFY(!err.isEmpty());
+    QVERIFY(!systemtools::setVolume(-1, &err));
+    auto step = systemtools::stepVolume(-10, &err);
+    QVERIFY(step);
+    QCOMPARE(step->args.last(), QString("10%-"));
+    QVERIFY(step->args.contains("-l")); // never past 100 %
+    QCOMPARE(systemtools::stepVolume(5)->args.last(), QString("5%+"));
+    QVERIFY(!systemtools::stepVolume(0));
+    QVERIFY(!systemtools::stepVolume(80));
+    QVERIFY(!systemtools::muteVolume("explode"));
+    QCOMPARE(systemtools::muteVolume("mute")->args.last(), QString("1"));
+  }
+
+  void parsesVolumeOutput() {
+    auto v = systemtools::parseVolume("Volume: 0.40\n");
+    QVERIFY(v.ok);
+    QCOMPARE(v.percent, 40);
+    QVERIFY(!v.muted);
+    v = systemtools::parseVolume("Volume: 0.55 [MUTED]");
+    QVERIFY(v.muted);
+    QCOMPARE(v.percent, 55);
+    QVERIFY(!systemtools::parseVolume("garbage").ok);
+  }
+
+  void mediaOnlyAllowsKnownActions() {
+    QVERIFY(systemtools::media("play-pause"));
+    QVERIFY(!systemtools::media("open --url http://evil"));
+    QVERIFY(!systemtools::media(""));
+  }
+
+  void safeCommandsAreAllowListed_data() {
+    QTest::addColumn<QString>("line");
+    QTest::addColumn<bool>("allowed");
+    QTest::newRow("uname") << "uname -a" << true;
+    QTest::newRow("df") << "df -h" << true;
+    QTest::newRow("free") << "free --human" << true;
+    QTest::newRow("nvidia") << "nvidia-smi" << true;
+    QTest::newRow("rm") << "rm -rf" << false;
+    QTest::newRow("pipe") << "uname | sh" << false;
+    QTest::newRow("chain") << "uname; reboot" << false;
+    QTest::newRow("subst") << "echo $(id)" << false;
+    QTest::newRow("path") << "df /etc/shadow" << false;
+    QTest::newRow("redirect") << "date > /etc/passwd" << false;
+    QTest::newRow("backtick") << "date `reboot`" << false;
+    QTest::newRow("unknown") << "cat /etc/shadow" << false;
+    QTest::newRow("bad flag") << "df -h --output=source,target,size" << false;
+    QTest::newRow("newline") << "uname\nreboot" << false;
+    QTest::newRow("empty") << "   " << false;
+  }
+  void safeCommandsAreAllowListed() {
+    QFETCH(QString, line);
+    QFETCH(bool, allowed);
+    QString err;
+    const auto c = systemtools::safeCommand(line, &err);
+    QCOMPARE(bool(c), allowed);
+    if (!allowed)
+      QVERIFY2(!err.isEmpty(), qPrintable(line));
+    else
+      QVERIFY(!c->program.contains('/'));
+  }
+
+  void notificationTitlesCannotBecomeOptions() {
+    const auto c = systemtools::notify("--icon=/etc/passwd", "body");
+    QVERIFY(c);
+    const int dashdash = c->args.indexOf("--");
+    QVERIFY(dashdash >= 0);
+    QVERIFY(c->args.indexOf("--icon=/etc/passwd") > dashdash);
+    QVERIFY(!systemtools::notify("   ", "x"));
+  }
+
+  void clipboardTextGoesOnStdinNotTheCommandLine() {
+    const auto c = systemtools::clipboardWrite("secret; rm -rf ~");
+    QVERIFY(c);
+    QVERIFY(c->args.isEmpty());
+    QCOMPARE(c->input, QByteArray("secret; rm -rf ~"));
+  }
+
+  void namesFilesByTimeWithoutOverwriting() {
+    const QDateTime a(QDate(2026, 9, 29), QTime(10, 30, 5));
+    const QDateTime b = a.addSecs(1);
+    QVERIFY(systemtools::screenshotPath("/x", a) != systemtools::screenshotPath("/x", b));
+    QCOMPARE(systemtools::screenshotPath("/x", a), QString("/x/nala-20260929-103005.png"));
+  }
+
+  void speaksTimeAndDate() {
+    const QDateTime t(QDate(2026, 9, 29), QTime(15, 7, 0));
+    QCOMPARE(systemtools::spokenTime(t), QString("3:07 PM"));
+    QCOMPARE(systemtools::spokenDate(t), QString("Tuesday, September 29, 2026"));
+  }
+
+  void parsesSpokenNumbers() {
+    QCOMPARE(systemtools::parseSpokenNumber("forty five"), 45);
+    QCOMPARE(systemtools::parseSpokenNumber("forty-five"), 45);
+    QCOMPARE(systemtools::parseSpokenNumber("a hundred"), 100);
+    QCOMPARE(systemtools::parseSpokenNumber("seventy"), 70);
+    QCOMPARE(systemtools::parseSpokenNumber("40"), 40);
+    QCOMPARE(systemtools::parseSpokenNumber("banana"), -1);
+    QCOMPARE(systemtools::parseSpokenNumber(""), -1);
   }
 
   // --- catalogue and GPU -----------------------------------------------------

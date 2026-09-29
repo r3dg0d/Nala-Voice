@@ -21,6 +21,7 @@ class AssistantSettings;
 class EventLog;
 class FishSpeech;
 class Microphone;
+class QProcess;
 class ScreenMemory;
 class Speaker;
 class SpeechToText;
@@ -242,6 +243,14 @@ private:
   void settle();
   void applySettings(const QString &key = {});
   void registerTools();
+  // Volume, media, time, clipboard, notifications, screenshots, video
+  // recording and a short list of read-only commands (assistant_tools.cpp).
+  void registerSystemTools();
+  // Runs a router action that belongs to them; false if it is not one.
+  bool runSystemFast(const Route &route);
+  // Says a confirmation, aloud only if tts.confirmCommands allows it.
+  void confirmCommand(const QString &text);
+  void stopVideoRecording();
 
   // Hearing.
   void onUtterance(const QByteArray &pcm16k);
@@ -360,6 +369,8 @@ private:
   bool m_voiceBroken = false;
   bool m_followAfter = false; // what is being said is an answer
   bool m_chiming = false;     // the speaker is playing the wake chime
+  QProcess *m_recorder = nullptr; // a video recording she started, if any
+  QString m_recordingPath;
 
   // Where the last screenshot handed to the model came from, so its pixel
   // coordinates can be turned back into the desktop's.

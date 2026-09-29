@@ -1,5 +1,7 @@
 #include "commandrouter.h"
 
+#include "systemtools.h"
+
 #include <QHash>
 #include <algorithm>
 
@@ -159,6 +161,67 @@ void CommandRouter::build() {
   add("(?:unmute|un-mute)\\s+(?:yourself|your\\s+voice)|"
       "(?:you\\s+can\\s+)?(?:talk|speak)\\s+(?:to\\s+me\\s+)?(?:again|out\\s+loud)",
       "tts.unmute");
+
+  // Volume, media and the clock. Deterministic on purpose: "turn the volume
+  // down" should take a few milliseconds, not a model round trip.
+  const QString num = QStringLiteral("((?:[0-9]{1,3})|(?:(?!percent)[a-z]+(?:[ -](?!percent)[a-z]+){0,2}))");
+  add("(?:set\\s+|turn\\s+|put\\s+|change\\s+)?(?:the\\s+|my\\s+)?(?:volume|sound|audio)\\s+"
+      "(?:(?:up|down)\\s+)?(?:to|at)\\s+" + num + "\\s*(?:percent|%)?",
+      "volume.set", [](const QRegularExpressionMatch &m) {
+        const int level = systemtools::parseSpokenNumber(m.captured(1));
+        return level >= 0 && level <= 100 ? QVariantMap{{"level", level}}
+                                          : QVariantMap{{"invalid", true}};
+      });
+  add("(?:set\\s+)?(?:the\\s+)?volume\\s+([0-9]{1,3})\\s*(?:percent|%)?",
+      "volume.set", [](const QRegularExpressionMatch &m) {
+        const int level = m.captured(1).toInt();
+        return level <= 100 ? QVariantMap{{"level", level}}
+                            : QVariantMap{{"invalid", true}};
+      });
+  add("(?:turn\\s+|make\\s+)?(?:the\\s+|my\\s+)?(?:volume|sound|audio)\\s+(up|down)"
+      "(?:\\s+a\\s+(bit|little|notch|lot))?|"
+      "turn\\s+it\\s+(up|down)(?:\\s+a\\s+(bit|little|notch|lot))?|"
+      "(?:make\\s+it\\s+)?(louder|quieter|softer)(?:\\s+a\\s+(bit|little|notch|lot))?|"
+      "(lower|raise|increase|decrease|reduce)\\s+(?:the\\s+|my\\s+)?volume",
+      "volume.step", [](const QRegularExpressionMatch &m) {
+        const QString word = QStringList{m.captured(1), m.captured(3), m.captured(5),
+                                         m.captured(7)}.join("");
+        const bool up = word == "up" || word == "louder" || word == "raise" ||
+                        word == "increase";
+        const QString size = m.captured(2) + m.captured(4) + m.captured(6);
+        const int step = size == "lot" ? 20 : size.isEmpty() ? 10 : 5;
+        return QVariantMap{{"delta", up ? step : -step}};
+      });
+  add("(?:mute|silence)(?:\\s+(?:the\\s+|my\\s+)?(?:volume|sound|audio|speakers|computer|system))?",
+      "volume.mute");
+  add("(?:unmute|un-mute)(?:\\s+(?:the\\s+|my\\s+)?(?:volume|sound|audio|speakers|computer|system))?",
+      "volume.unmute");
+  add("(?:pause|hold)(?:\\s+(?:the\\s+)?(?:music|song|track|media|video|playback|playing|it|this))?|"
+      "stop\\s+(?:the\\s+)?(?:music|song|track|playback|playing)",
+      "media.pause");
+  add("(?:resume|continue|unpause|play)(?:\\s+(?:the\\s+)?(?:music|song|track|media|video|playback|playing|it|this))?",
+      "media.play");
+  add("(?:next|skip)(?:\\s+(?:the\\s+|this\\s+)?(?:song|track|one))?|next\\s+(?:song|track)",
+      "media.next");
+  add("previous(?:\\s+(?:song|track|one))?|last\\s+(?:song|track)|"
+      "go\\s+back\\s+(?:a|one)\\s+(?:song|track)|back\\s+a\\s+track",
+      "media.previous");
+  add("what(?:'s|\\s+is)\\s+the\\s+(?:current\\s+)?time|what\\s+time\\s+is\\s+it(?:\\s+now)?|"
+      "(?:tell\\s+me\\s+)?the\\s+(?:current\\s+)?time|got\\s+the\\s+time",
+      "time.now");
+  add("what(?:'s|\\s+is)\\s+(?:the\\s+|today's\\s+)?(?:date|day)(?:\\s+today)?|"
+      "what\\s+day\\s+is\\s+it(?:\\s+today)?|what(?:'s|\\s+is)\\s+today",
+      "date.today");
+  add("lock\\s+(?:the\\s+|my\\s+)?(?:screen|computer|pc|session|desktop|laptop)|lock\\s+(?:it|up)",
+      "session.lock");
+  add("(?:take\\s+(?:a\\s+)?)?screenshot|(?:capture|grab)\\s+(?:the\\s+|my\\s+)?screen",
+      "screenshot.take");
+  add("(?:start|begin)\\s+(?:a\\s+)?video\\s+recording|"
+      "record\\s+(?:a\\s+)?video(?:\\s+of\\s+(?:my|the)\\s+screen)?|"
+      "record\\s+(?:my|the)\\s+screen\\s+(?:to|into)\\s+(?:a\\s+)?(?:file|video)",
+      "record.start");
+  add("(?:stop|end|finish)\\s+(?:the\\s+)?video\\s+recording",
+      "record.stop");
 
   // Her.
   add("(?:go\\s+to\\s+sleep|sleep|take\\s+a\\s+nap|nap\\s+time|"
