@@ -1608,12 +1608,12 @@ private slots:
       QVERIFY(!a.memory()->captureActiveForTest());
       const QString status = a.memoryCommand("status");
       QVERIFY2(status.startsWith("screen memory off"), qPrintable(status));
-      // status() prefers "off" over "paused" when memory.enabled is false;
-      // enable so pause is visible in the CLI line (flag is set either way).
-      QVERIFY(a.settings()->set("memory.enabled", true));
-      const QString paused = a.memoryCommand("pause 60");
-      QVERIFY2(paused.contains("paused"), qPrintable(paused));
+      // Pause while disabled: status must still say paused (killswitch wins).
+      const QString pausedOff = a.memoryCommand("pause 60");
+      QVERIFY2(pausedOff.contains("paused"), qPrintable(pausedOff));
+      QVERIFY(!pausedOff.contains("off"));
       QVERIFY(a.memory()->paused());
+      QVERIFY(!a.memory()->enabled());
       QVERIFY(!a.memory()->captureActiveForTest()); // oneshot stays offline
       QCOMPARE(a.memoryCommand("bogus"),
                QString("usage: nala memory pause [minutes] | resume | status | clear screen [all]"));
@@ -1623,11 +1623,13 @@ private slots:
       const QString cleared = a.memoryCommand("clear screen");
       QVERIFY2(cleared.startsWith("Forgot "), qPrintable(cleared));
     }
-    // Fresh oneshot must still see the pause written to disk.
+    // Fresh oneshot must still see the pause written to disk (even while off).
     {
       Assistant b(paths, Assistant::Mode::Oneshot);
       QVERIFY(b.memory()->paused());
+      QVERIFY(!b.memory()->enabled());
       QVERIFY(b.memoryCommand(QString()).contains("paused"));
+      QVERIFY(!b.memoryCommand("status").contains("off"));
       const QString resumed = b.memoryCommand("resume");
       QVERIFY2(resumed.contains("off") || resumed.contains("recording"),
                qPrintable(resumed));

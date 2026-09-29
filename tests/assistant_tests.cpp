@@ -774,12 +774,22 @@ private slots:
     memory.setOffline(true);
     const WindowInfo editor = window("kitty", "nvim notes.md", "0xa");
 
-    // Off by default: nothing is kept.
+    // Off by default: nothing is kept; status says off.
+    QCOMPARE(memory.status(), QString("off"));
     memory.ingest(scene(0), editor);
     QTest::qWait(50);
     QCOMPARE(store.count(), 0);
 
+    // Pause while disabled: status prefers paused over off.
+    memory.pause();
+    QCOMPARE(memory.status(), QString("paused"));
+    QVERIFY(memory.paused());
+    QVERIFY(!memory.recording());
+    memory.resume();
+    QCOMPARE(memory.status(), QString("off"));
+
     memory.setEnabled(true);
+    QCOMPARE(memory.status(), QString("recording"));
     memory.ingest(scene(0), editor);
     QTRY_COMPARE(store.count(), 1);
 
@@ -797,6 +807,7 @@ private slots:
     memory.pause();
     QVERIFY(memory.paused());
     QVERIFY(!memory.recording());
+    QCOMPARE(memory.status(), QString("paused"));
     {
       AssistantSettings fromDisk(dir.filePath("assistant.json"));
       QVERIFY(fromDisk.flag("memory.paused"));
@@ -817,6 +828,11 @@ private slots:
     memory.pause(60);
     QVERIFY(memory.pausedUntil().isValid());
     QVERIFY(memory.pausedUntil() > QDateTime::currentDateTime().addSecs(3500));
+    QVERIFY(memory.status().startsWith("paused until"));
+    // Disable while paused: status stays paused (not "off").
+    memory.setEnabled(false);
+    QVERIFY(memory.status().startsWith("paused until"));
+    memory.setEnabled(true);
 
     // Kept files are private.
     const QString shot = store.latest().shotPath;

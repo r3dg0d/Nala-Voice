@@ -96,13 +96,15 @@ QDateTime ScreenMemory::pausedUntil() const {
 }
 
 QString ScreenMemory::status() const {
-  if (!enabled())
-    return QStringLiteral("off");
+  // Pause is the privacy killswitch and survives disable/restart — surface it
+  // even when memory.enabled is false, so status/CLI never hide an armed pause.
   if (paused())
     return pausedUntil().isValid()
                ? QStringLiteral("paused until %1")
                      .arg(pausedUntil().toString("h:mm AP"))
                : QStringLiteral("paused");
+  if (!enabled())
+    return QStringLiteral("off");
   return QStringLiteral("recording");
 }
 

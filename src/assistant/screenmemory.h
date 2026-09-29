@@ -47,6 +47,7 @@ public:
   // Actually capturing: enabled and not paused.
   bool recording() const { return enabled() && !paused(); }
   QDateTime pausedUntil() const;
+  // "paused" / "paused until …" wins over "off" when the killswitch is armed.
   QString status() const;
   int count() const { return m_store->count(); }
   qint64 storageBytes() const { return m_store->storageBytes(); }

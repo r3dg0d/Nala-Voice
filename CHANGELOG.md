@@ -6,6 +6,15 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+### Fixed
+
+- **Memory status vs pause**: `ScreenMemory::status()` (and therefore
+  `nala memory status`, doctor, settings copy, and tool replies) now reports
+  `paused` / `paused until …` when the privacy killswitch is armed, even if
+  `memory.enabled` is false. Previously disabled+paused looked like plain
+  `off`, hiding a pause that still survives restart. Settings also keeps the
+  Resume button visible while a pause is armed with the toggle off.
+
 ## 1.3.5 — 2026-09-29
 
 Oneshot privacy for screen memory, and `nala memory` when she is not running.

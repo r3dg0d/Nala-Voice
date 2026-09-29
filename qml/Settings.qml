@@ -763,7 +763,9 @@ Window {
                     spacing: 6
 
                     ActionButton {
-                        visible: screenMemory.enabled
+                        // Show Resume even when the toggle is off so an armed
+                        // pause (survives disable) is not stuck without a UI out.
+                        visible: screenMemory.enabled || screenMemory.paused
                         text: screenMemory.paused ? "Resume" : "Pause now"
                         onClicked: screenMemory.paused ? screenMemory.resume() : screenMemory.pause(0)
                     }

@@ -5,6 +5,9 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.5+)
 
+Unreleased: `status()` prefers paused over off when the killswitch is armed
+while disabled; Settings Resume stays available in that case.
+
 1.3.5: oneshot no longer arms screen capture when memory is enabled;
 `nala memory status|pause|resume|clear screen` works without a live companion
 (same headless path as doctor).

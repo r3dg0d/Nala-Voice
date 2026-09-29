@@ -92,7 +92,7 @@ without limit. Descriptions (the rows) have their own age limit
 Clear it yourself (works even when she is not running):
 
 ```bash
-nala memory status              # off / paused / recording, count, size
+nala memory status              # paused (even if disabled) / off / recording, count, size
 nala memory pause               # until resumed (survives restart)
 nala memory pause 60            # for one hour
 nala memory resume
