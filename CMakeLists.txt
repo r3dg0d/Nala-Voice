@@ -47,6 +47,7 @@ qt_add_library(nala_assistant STATIC
   src/assistant/settings.cpp src/assistant/settings.h
   src/assistant/speech.cpp src/assistant/speech.h
   src/assistant/tools.cpp src/assistant/tools.h
+  src/assistant/tts.cpp src/assistant/tts.h
   src/assistant/wakecli.cpp src/assistant/wakecli.h
   src/assistant/wakeword.cpp src/assistant/wakeword.h)
 target_include_directories(nala_assistant PUBLIC src/assistant)

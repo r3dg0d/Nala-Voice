@@ -7,8 +7,10 @@
 #include "llm.h"
 #include "modelcatalog.h"
 #include "modelrouter.h"
+#include "audioutil.h"
 #include "sentencestream.h"
 #include "systemtools.h"
+#include "tts.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -30,6 +32,8 @@ public:
   QTcpServer server;
   QMap<QString, Reply> replies;          // by path
   QList<QJsonObject> chatBodies;         // parsed /chat/completions requests
+  QStringList paths;                     // every request path, in order
+  QMap<QString, QByteArray> lastBody;    // by path
   FakeServer() {
     server.listen(QHostAddress::LocalHost);
     connect(&server, &QTcpServer::newConnection, this, [this] {
@@ -55,6 +59,8 @@ private:
     if (buf.size() < end + 4 + length) { sock->setProperty("buf", buf); return; }
     const QByteArray body = buf.mid(end + 4, length);
     const QString path = QString::fromLatin1(head.split(' ').value(1));
+    paths << path;
+    lastBody[path] = body;
     if (path.endsWith("/chat/completions"))
       chatBodies << QJsonDocument::fromJson(body).object();
     Reply r = replies.value(path, Reply{404, "{}", {}});
@@ -733,6 +739,143 @@ private slots:
     QCOMPARE(systemtools::parseSpokenNumber("40"), 40);
     QCOMPARE(systemtools::parseSpokenNumber("banana"), -1);
     QCOMPARE(systemtools::parseSpokenNumber(""), -1);
+  }
+
+  // --- voice ---------------------------------------------------------------------
+  void qwenStreamsRawPcm() {
+    FakeServer srv;
+    srv.replies["/v1/audio/speech"].body = QByteArray(4801, '\x10'); // an odd byte on the end
+    QNetworkAccessManager net;
+    QwenTts tts(&net);
+    QwenTts::Config c;
+    c.endpoint = srv.url("");
+    c.sampleRate = 24000;
+    tts.configure(c);
+    QSignalSpy format(&tts, &TextToSpeech::format);
+    QSignalSpy done(&tts, &TextToSpeech::done);
+    QByteArray got;
+    connect(&tts, &TextToSpeech::audio, this, [&](const QByteArray &b) { got += b; });
+    tts.synthesize("Hello there.");
+    QVERIFY(done.wait(5000));
+    QCOMPARE(format.size(), 1);
+    QCOMPARE(format.first().at(0).toInt(), 24000);
+    QCOMPARE(format.first().at(1).toInt(), 1);
+    QCOMPARE(format.first().at(2).toInt(), 16);
+    QCOMPARE(got.size(), 4800); // whole samples only: the stray byte is not played
+    const QJsonObject body = QJsonDocument::fromJson(srv.lastBody["/v1/audio/speech"]).object();
+    QCOMPARE(body.value("input").toString(), QString("Hello there."));
+    QCOMPARE(body.value("response_format").toString(), QString("pcm"));
+    QVERIFY(body.value("stream").toBool());
+    QVERIFY(!body.contains("instruct"));
+  }
+
+  void qwenAcceptsWavToo() {
+    FakeServer srv;
+    srv.replies["/v1/audio/speech"].body = audio::wav(QByteArray(2000, '\x01'), 22050);
+    QNetworkAccessManager net;
+    QwenTts tts(&net);
+    QwenTts::Config c;
+    c.endpoint = srv.url("");
+    c.streaming = false;
+    c.instruct = "warm and calm";
+    tts.configure(c);
+    QSignalSpy format(&tts, &TextToSpeech::format);
+    QSignalSpy done(&tts, &TextToSpeech::done);
+    QByteArray got;
+    connect(&tts, &TextToSpeech::audio, this, [&](const QByteArray &b) { got += b; });
+    tts.synthesize("Hi.");
+    QVERIFY(done.wait(5000));
+    QCOMPARE(format.first().at(0).toInt(), 22050); // the header wins over the setting
+    QCOMPARE(got.size(), 2000);
+    const QJsonObject body = QJsonDocument::fromJson(srv.lastBody["/v1/audio/speech"]).object();
+    QCOMPARE(body.value("response_format").toString(), QString("wav"));
+    QCOMPARE(body.value("instruct").toString(), QString("warm and calm"));
+  }
+
+  void qwenReportsAnUnreachableServer() {
+    QNetworkAccessManager net;
+    QwenTts tts(&net);
+    QwenTts::Config c;
+    c.endpoint = QUrl("http://127.0.0.1:1");
+    tts.configure(c);
+    QSignalSpy failed(&tts, &TextToSpeech::failed);
+    tts.synthesize("Hi.");
+    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.first().first().toString().contains("Qwen3-TTS"));
+  }
+
+  void fishTakesOverWhenQwenIsDown() {
+    FakeServer qwenSrv, fishSrv;
+    qwenSrv.replies["/v1/audio/speech"] = {500, "{}", {}};
+    fishSrv.replies["/v1/tts"].body = audio::wav(QByteArray(1000, '\x02'), 44100);
+    QNetworkAccessManager net;
+    QwenTts qwen(&net);
+    QwenTts::Config qc;
+    qc.endpoint = qwenSrv.url("");
+    qwen.configure(qc);
+    FishSpeech fish(&net);
+    fish.configure(fishSrv.url(""), {}, false, {});
+    TtsChain chain;
+    chain.setEngines({&qwen, &fish});
+
+    for (int sentence = 0; sentence < 2; ++sentence) {
+      QSignalSpy done(&chain, &TextToSpeech::done);
+      QSignalSpy failed(&chain, &TextToSpeech::failed);
+      QByteArray got;
+      QMetaObject::Connection c = connect(&chain, &TextToSpeech::audio, this,
+                                          [&](const QByteArray &b) { got += b; });
+      chain.synthesize("One sentence.");
+      QVERIFY(done.wait(5000));
+      disconnect(c);
+      QCOMPARE(failed.size(), 0);
+      QCOMPARE(got.size(), 1000);
+      QCOMPARE(chain.lastEngine(), QString("fish-speech"));
+    }
+    // The second sentence did not wait for Qwen to fail again.
+    QCOMPARE(qwenSrv.paths.count("/v1/audio/speech"), 1);
+    QCOMPARE(fishSrv.paths.count("/v1/tts"), 2);
+    QCOMPARE(chain.downEngines(), QStringList{"qwen3-tts"});
+  }
+
+  void chainFailsCleanlyWhenNoVoiceWorks() {
+    FakeServer a, b;
+    a.replies["/v1/audio/speech"] = {500, "{}", {}};
+    b.replies["/v1/tts"] = {500, "{}", {}};
+    QNetworkAccessManager net;
+    QwenTts qwen(&net);
+    QwenTts::Config qc;
+    qc.endpoint = a.url("");
+    qwen.configure(qc);
+    FishSpeech fish(&net);
+    fish.configure(b.url(""), {}, false, {});
+    TtsChain chain;
+    chain.setEngines({&qwen, &fish});
+    QSignalSpy failed(&chain, &TextToSpeech::failed);
+    QSignalSpy done(&chain, &TextToSpeech::done);
+    chain.synthesize("Hi.");
+    QVERIFY(failed.wait(5000));
+    QCOMPARE(done.size(), 0);
+    QVERIFY(failed.first().first().toString().contains("Qwen3-TTS"));
+    QVERIFY(failed.first().first().toString().contains("Fish Speech"));
+  }
+
+  void chainStopSilencesEverything() {
+    FakeServer srv;
+    srv.replies["/v1/audio/speech"].body = QByteArray(2000, '\x05');
+    QNetworkAccessManager net;
+    QwenTts qwen(&net);
+    QwenTts::Config qc;
+    qc.endpoint = srv.url("");
+    qwen.configure(qc);
+    TtsChain chain;
+    chain.setEngines({&qwen});
+    QSignalSpy done(&chain, &TextToSpeech::done);
+    QSignalSpy audioSpy(&chain, &TextToSpeech::audio);
+    chain.synthesize("Hi.");
+    chain.stop();
+    QTest::qWait(300);
+    QCOMPARE(done.size(), 0);
+    QCOMPARE(audioSpy.size(), 0);
   }
 
   // --- catalogue and GPU -----------------------------------------------------

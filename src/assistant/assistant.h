@@ -20,6 +20,8 @@
 class AssistantSettings;
 class EventLog;
 class FishSpeech;
+class QwenTts;
+class TtsChain;
 class Microphone;
 class QProcess;
 class ScreenMemory;
@@ -298,6 +300,8 @@ private:
   SpeechToText *m_sttOverride = nullptr;
   bool m_triedServer = false;
   FishSpeech *m_fish = nullptr;
+  QwenTts *m_qwen = nullptr;
+  TtsChain *m_tts = nullptr; // the voice: Qwen3-TTS, then Fish Speech
   CommandRouter m_router;
   Identity m_identity;
   std::unique_ptr<wake::WakeWordBackend> m_ownedWake;

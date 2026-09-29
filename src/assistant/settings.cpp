@@ -115,8 +115,16 @@ const QVector<Spec> &specs() {
 
       // Voice: Fish Speech's local API server.
       {"tts.enabled", Kind::Bool, true},
-      {"tts.engine", Kind::Choice, QStringLiteral("fish"), 0, 0,
-       {"fish", "none"}},
+      // auto: Qwen3-TTS, and Fish Speech if it is not answering.
+      {"tts.engine", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "qwen", "fish", "none"}},
+      // Qwen3-TTS, through any OpenAI-compatible speech server (POST
+      // /v1/audio/speech). Raw PCM has no rate in the stream, so it is set here.
+      {"tts.qwen.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:8880")},
+      {"tts.qwen.model", Kind::String, QStringLiteral("tts-1")},
+      {"tts.qwen.voice", Kind::String, QStringLiteral("alloy")},
+      {"tts.qwen.sampleRate", Kind::Int, 24000, 8000, 96000},
+      {"tts.qwen.instruct", Kind::String, QString()},
       {"tts.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:8080")},
       {"tts.referenceId", Kind::String, QString()},
       {"tts.streaming", Kind::Bool, true},

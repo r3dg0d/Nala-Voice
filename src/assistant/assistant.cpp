@@ -4,6 +4,7 @@
 #include "screenmemory.h"
 #include "settings.h"
 #include "speech.h"
+#include "tts.h"
 
 #include <QBuffer>
 #include <QDir>
@@ -122,7 +123,7 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
     m_log->record("error", "speaker", {{"reason", why}});
     m_voiceBroken = true;
     m_speech.clear();
-    m_fish->stop();
+    m_tts->stop();
     m_synthesizing = false;
     finishSpeaking();
   });
@@ -152,22 +153,24 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   }
 
   m_fish = new FishSpeech(&m_network, this);
-  connect(m_fish, &TextToSpeech::format, this,
+  m_qwen = new QwenTts(&m_network, this);
+  m_tts = new TtsChain(this);
+  connect(m_tts, &TextToSpeech::format, this,
           [this](int rate, int channels, int bits) {
             if (!m_speaker->begin(rate, channels, bits,
                                   m_settings->string("tts.device"),
                                   m_settings->number("tts.volume")))
-              m_fish->stop();
+              m_tts->stop();
           });
-  connect(m_fish, &TextToSpeech::audio, m_speaker, &Speaker::append);
-  connect(m_fish, &TextToSpeech::done, this, [this] {
+  connect(m_tts, &TextToSpeech::audio, m_speaker, &Speaker::append);
+  connect(m_tts, &TextToSpeech::done, this, [this] {
     m_synthesizing = false;
     if (m_speaker->playing())
       m_speaker->finish();
     else
       speakNext();
   });
-  connect(m_fish, &TextToSpeech::failed, this, [this](const QString &why) {
+  connect(m_tts, &TextToSpeech::failed, this, [this](const QString &why) {
     // Without a voice she still answers, in the bubble.
     m_log->record("error", "tts", {{"reason", why}});
     m_voiceBroken = true;
@@ -332,6 +335,22 @@ void Assistant::applySettings(const QString &key) {
                     m_settings->string("tts.referenceId"),
                     m_settings->flag("tts.streaming"),
                     m_settings->string("tts.stylePrefix"));
+  QwenTts::Config qwen;
+  qwen.endpoint = QUrl(m_settings->string("tts.qwen.endpoint"));
+  qwen.model = m_settings->string("tts.qwen.model");
+  qwen.voice = m_settings->string("tts.qwen.voice");
+  qwen.sampleRate = m_settings->integer("tts.qwen.sampleRate");
+  qwen.streaming = m_settings->flag("tts.streaming");
+  qwen.instruct = m_settings->string("tts.qwen.instruct");
+  m_qwen->configure(qwen);
+  // Qwen3-TTS is the voice; Fish Speech takes over if it is not answering.
+  const QString engine = m_settings->string("tts.engine");
+  QVector<TextToSpeech *> engines;
+  if (engine == "auto" || engine == "qwen")
+    engines << m_qwen;
+  if (engine == "auto" || engine == "fish")
+    engines << m_fish;
+  m_tts->setEngines(engines);
   if (key.startsWith("tts."))
     m_voiceBroken = false;
 
@@ -751,7 +770,7 @@ void Assistant::runFast(const Route &route) {
     const bool mute = a == "tts.mute";
     m_settings->set("tts.muted", mute);
     if (mute) {
-      m_fish->stop();
+      m_tts->stop();
       m_speaker->stop();
     }
     say(mute ? QStringLiteral("Okay, bubbles only.")
@@ -1058,7 +1077,7 @@ void Assistant::stop() {
   m_lastPcm.clear();
   m_whisperServer->cancel();
   m_whisperCli->cancel();
-  m_fish->stop();
+  m_tts->stop();
   m_speaker->stop();
   m_speech.clear();
   m_synthesizing = false;
@@ -1087,9 +1106,9 @@ void Assistant::say(const QString &text, bool speak) {
 
   const bool voice = speak && !m_testing && m_settings->flag("tts.enabled") &&
                      !m_settings->flag("tts.muted") &&
-                     m_settings->string("tts.engine") == "fish" &&
+                     m_settings->string("tts.engine") != "none" &&
                      !m_voiceBroken;
-  m_fish->stop();
+  m_tts->stop();
   m_speaker->stop();
   m_speech.clear();
   m_synthesizing = false;
@@ -1118,7 +1137,7 @@ void Assistant::speakNext() {
     return;
   }
   m_synthesizing = true;
-  m_fish->synthesize(m_speech.takeFirst());
+  m_tts->synthesize(m_speech.takeFirst());
 }
 
 void Assistant::finishSpeaking() {
