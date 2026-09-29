@@ -3,9 +3,9 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.5+)
+## Where things stand (1.3.6+)
 
-Unreleased: `status()` prefers paused over off when the killswitch is armed
+1.3.6: `status()` prefers paused over off when the killswitch is armed
 while disabled; Settings Resume stays available in that case.
 
 1.3.5: oneshot no longer arms screen capture when memory is enabled;

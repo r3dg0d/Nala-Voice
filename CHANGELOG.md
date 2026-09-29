@@ -6,6 +6,10 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.6 — 2026-09-29
+
+Memory status no longer hides an armed privacy pause behind "off".
+
 ### Fixed
 
 - **Memory status vs pause**: `ScreenMemory::status()` (and therefore
