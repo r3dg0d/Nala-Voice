@@ -6,6 +6,10 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.7 — 2026-09-29
+
+Router month units on pause/forget, and STT auto→cli fallback tests.
+
 ### Fixed
 
 - **Router month durations**: `pause` / `forget the last …` fast-path commands

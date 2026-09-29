@@ -33,7 +33,7 @@
       packages = forAll (pkgs: {
         default = pkgs.stdenv.mkDerivation {
           pname = "nala";
-          version = "1.3.6";
+          version = "1.3.7";
           src = self;
           nativeBuildInputs = with pkgs; [ cmake ninja qt6.wrapQtAppsHook ];
           buildInputs = qtDeps pkgs;
