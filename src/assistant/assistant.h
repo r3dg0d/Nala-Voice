@@ -94,6 +94,12 @@ public:
     QString log;       // assistant.log
   };
 
+  // Live: full companion. Testing: no mic / real wake / autosave (unit tests).
+  // Oneshot: settings and wake like Live, but no mic, no auto-diagnose, no
+  // setup wizard — used by `nala doctor` / status when she is not running.
+  enum class Mode { Live, Testing, Oneshot };
+
+  Assistant(const Paths &paths, Mode mode, QObject *parent = nullptr);
   Assistant(const Paths &paths, bool testing, QObject *parent = nullptr);
   ~Assistant() override;
 
@@ -388,6 +394,7 @@ private:
   desktop::AppIndex m_apps;
   std::function<void(const QString &)> m_companion;
   bool m_testing = false;
+  bool m_oneshot = false;
 
   QString m_state = QStringLiteral("idle");
   QString m_bubble;

@@ -1412,6 +1412,39 @@ private slots:
     QVERIFY(out.contains("Main model:"));
   }
 
+  // Oneshot mode is what `nala doctor` uses when she is not already running:
+  // real settings/wake, no microphone, diagnose only when asked.
+  void oneshotDiagnoseReportsVersionWithoutOpeningMic() {
+    FakeServer llm;
+    llm.replies["/v1/models"].body =
+        R"({"data":[{"id":"big-27b:q4"},{"id":"gpt-oss:20b"},{"id":"qwen3:30b-a3b"}]})";
+    FakeServer stt;
+    stt.replies["/"].status = 200;
+    stt.replies["/"].body = "ok";
+    QTemporaryDir dir;
+    Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+    Assistant a(paths, Assistant::Mode::Oneshot);
+    QVERIFY(!a.micOpen());
+    a.settings()->set("llm.endpoint", llm.url("/v1").toString());
+    a.settings()->set("llm.mainModel", "big-27b");
+    a.settings()->set("llm.fastModel", "gpt-oss:20b");
+    a.settings()->set("llm.speedModel", "qwen3:30b-a3b");
+    a.settings()->set("stt.serverUrl", stt.url("/").toString());
+    a.settings()->set("stt.activation", "push"); // wake optional
+    a.settings()->set("tts.engine", "none");
+    a.settings()->set("memory.enabled", false);
+    QString report;
+    bool done = false;
+    a.diagnose([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+    QVERIFY2(report.startsWith(QStringLiteral("nala ") + QStringLiteral(NALA_VERSION)),
+             qPrintable(report.left(80)));
+    QVERIFY(report.contains("language model server"));
+    QVERIFY(report.contains("main model"));
+    QVERIFY(report.contains("whisper-server"));
+    QVERIFY(!a.micOpen()); // oneshot must never open the mic
+  }
+
   void badToolArgumentsNeverRunAnything() {
     Rig rig;
     const auto call = [&](const QString &tool, const QJsonObject &args) {

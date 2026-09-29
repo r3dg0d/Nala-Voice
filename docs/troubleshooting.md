@@ -1,8 +1,9 @@
 # Troubleshooting
 
 Start with `nala doctor`. It lists what is installed and running and what is
-missing, and each line says how to fix it. Then `nala model status`,
-`nala stt status`, `nala tts status`.
+missing, and each line says how to fix it. It works whether or not the
+companion is already running (as do `nala model status`, `nala stt status` and
+`nala tts status`). Then dig into whichever line failed.
 
 ## The answer takes many seconds
 

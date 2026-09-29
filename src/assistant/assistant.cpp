@@ -67,9 +67,13 @@ QString dayLabel(const QDate &date) {
 } // namespace
 
 Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
-    : QObject(parent), m_testing(testing) {
-  m_settings = new AssistantSettings(paths.settings, !testing, this);
-  m_log = new EventLog(testing ? QString() : paths.log, this);
+    : Assistant(paths, testing ? Mode::Testing : Mode::Live, parent) {}
+
+Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
+    : QObject(parent), m_testing(mode == Mode::Testing),
+      m_oneshot(mode == Mode::Oneshot) {
+  m_settings = new AssistantSettings(paths.settings, !m_testing, this);
+  m_log = new EventLog(m_testing ? QString() : paths.log, this);
   m_store = std::make_unique<MemoryStore>();
   QString error;
   if (!m_store->open(paths.memoryDir, &error))
@@ -80,7 +84,7 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   m_summaryLlm = new LlmClient(&m_network, this);
   m_benchLlm = new LlmClient(&m_network, this);
   m_memory = new ScreenMemory(m_settings, m_store.get(), m_log, m_memoryLlm, this);
-  if (testing)
+  if (m_testing)
     m_memory->setOffline(true);
 
   m_memory->setVisionCheck([this] { return visionEnabled(); });
@@ -278,7 +282,7 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   registerTools();
   registerSystemTools();
 
-  if (!testing) {
+  if (!m_testing && !m_oneshot) {
     // Lightest first: the pet is already up; now the wake word and the
     // microphone, then the application list and the (slower) health checks.
     QTimer::singleShot(0, this, [this] {
@@ -290,6 +294,10 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
       if (firstRun())
         emit setupRequested();
     });
+  } else if (m_oneshot) {
+    // Doctor / status without a window: load wake models so the report is
+    // accurate, but do not open the microphone or run diagnose until asked.
+    reloadWake();
   }
 }
 

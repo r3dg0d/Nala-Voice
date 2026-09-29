@@ -50,3 +50,12 @@ jobs:
             QT_QPA_PLATFORMTHEME= ./result/bin/nala --version)
           echo "auto offscreen: $out2"
           test "$out2" = "nala ${ver}"
+      - name: Smoke doctor (headless, no companion)
+        run: |
+          set -euo pipefail
+          ver=$(sed -n 's/.*project(Nala VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          # Companion is not running on CI: oneshot diagnose must still answer.
+          report=$(QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
+            ./result/bin/nala doctor)
+          echo "$report" | head -20
+          echo "$report" | head -1 | grep -qx "nala ${ver}"

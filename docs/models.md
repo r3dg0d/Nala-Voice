@@ -152,7 +152,9 @@ nala latency                 # where the last request's time went
 ```
 
 When Nala is not running, `nala model main|fast|speed|mode|thinking <value>`
-writes the setting so it applies on start.
+writes the setting so it applies on start. `nala model status`, `nala model list`
+and the other read-only model commands also work without her: they spin up a
+short-lived headless assistant, answer, and exit (same path as `nala doctor`).
 
 ## Settings reference
 

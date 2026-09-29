@@ -6,6 +6,25 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.2 — 2026-09-29
+
+Doctor and status work when she is not running. Troubleshooting no longer
+requires starting the companion first.
+
+### Fixed
+
+- `nala doctor`, `nala model status|list|…`, `nala stt status` and
+  `nala tts status` run headless when no companion is listening on the control
+  socket. Previously they printed `Nala is not running.` and exited 1, which
+  contradicted the docs (start troubleshooting with `nala doctor`). Oneshot
+  mode loads settings and wake models, answers, and exits — no window, no
+  microphone, no setup wizard.
+
+### Changed
+
+- CI smokes `nala doctor` under offscreen QPA and asserts the report starts
+  with `nala <version>`.
+
 ## 1.3.1 — 2026-09-29
 
 Headless and packaging polish on top of 1.3.0. Ships the CLI fix that stopped

@@ -38,6 +38,8 @@
 #include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QTemporaryDir>
+#include <QEventLoop>
+#include <QTimer>
 #include <QTextStream>
 #include <QTimer>
 #include <cstdio>
@@ -287,11 +289,63 @@ int main(int argc, char **argv) {
         return ok ? 0 : 1;
       }
     }
+    // Diagnostics work without a live companion. Docs tell people to start
+    // with `nala doctor` when something is wrong — often she is not running.
+    // Spin up a headless Assistant, answer, and exit (no window, no socket).
+    const bool oneshotDiag =
+        requested == "doctor" || requested == "model" ||
+        requested.startsWith("model ") || requested == "stt status" ||
+        requested == "tts status";
+    if (oneshotDiag) {
+      Assistant::Paths paths;
+      const QString configDir =
+          parser.value("config").isEmpty()
+              ? QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+                    "/nala"
+              : QFileInfo(parser.value("config")).absolutePath();
+      paths.settings = configDir + "/assistant.json";
+      paths.memoryDir =
+          QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
+          "/nala/memory";
+      paths.log = QString(); // oneshot: do not append to the live log
+      Assistant assistant(paths, Assistant::Mode::Oneshot);
+
+      QString out;
+      QEventLoop loop;
+      QTimer timeout;
+      timeout.setSingleShot(true);
+      timeout.setInterval(25000);
+      QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+      const auto finish = [&](const QString &text) {
+        out = text;
+        loop.quit();
+      };
+      if (requested == "doctor") {
+        assistant.diagnose(finish);
+      } else if (requested == "stt status") {
+        assistant.sttStatus(finish);
+      } else if (requested == "tts status") {
+        assistant.ttsStatus(finish);
+      } else {
+        // model / model <args>
+        const QString args = requested == "model"
+                                 ? QString()
+                                 : requested.section(' ', 1).trimmed();
+        assistant.modelCommand(args, finish);
+      }
+      timeout.start();
+      loop.exec();
+      if (out.isEmpty()) {
+        QTextStream(stderr) << "Timed out waiting for a reply.\n";
+        return 1;
+      }
+      QTextStream(stdout) << out.trimmed() << "\n";
+      return 0;
+    }
     if (requested == "status" || requested == "quit" ||
-        requested == "doctor" || requested.startsWith("ask ") ||
-        requested.startsWith("memory") || requested.startsWith("model") ||
-        requested == "stt status" || requested == "tts status" ||
-        requested == "latency" || requested == "benchmark") {
+        requested.startsWith("ask ") || requested.startsWith("memory") ||
+        requested == "latency" || requested == "benchmark" ||
+        requested.startsWith("benchmark ")) {
       QTextStream(stderr) << "Nala is not running.\n";
       return 1;
     }
