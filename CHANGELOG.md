@@ -6,6 +6,13 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+### Fixed
+
+- **Router month durations**: `pause` / `forget the last …` fast-path commands
+  accept `month` / `months` (same unit list as `delete … older than`). Spoken
+  "pause memory for a month" and "forget the last month" no longer fall through
+  to the model.
+
 ## 1.3.6 — 2026-09-29
 
 Memory status no longer hides an armed privacy pause behind "off".

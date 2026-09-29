@@ -5,6 +5,9 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.6+)
 
+Unreleased: command-router pause/forget durations accept `month`/`months`
+(same as delete-older), so spoken month spans stay on the fast path.
+
 1.3.6: `status()` prefers paused over off when the killswitch is armed
 while disabled; Settings Resume stays available in that case.
 

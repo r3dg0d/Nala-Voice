@@ -38,7 +38,7 @@ const QString kScreenThing = QStringLiteral(
     "(?:visual\\s+)?memory|memories|watching(?:\\s+my\\s+screen)?)");
 
 const QString kUnit =
-    QStringLiteral("(minute|minutes|hour|hours|day|days|week|weeks)");
+    QStringLiteral("(minute|minutes|hour|hours|day|days|week|weeks|month|months)");
 
 } // namespace
 

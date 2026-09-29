@@ -190,6 +190,9 @@ private slots:
         {"Remember this permanently.", "memory.pin"},
         {"Never record this app.", "memory.excludeCurrent"},
         {"Nala, pause memory for one hour.", "memory.pause"},
+        {"Nala, pause memory for a month.", "memory.pause"},
+        {"Forget the last month.", "memory.forget"},
+        {"Delete screenshots older than two months", "memory.deleteOlder"},
         {"How much storage are your memories using?", "memory.status"},
         {"yes", "confirm.yes"},
         {"go ahead", "confirm.yes"},
@@ -230,8 +233,12 @@ private slots:
     QCOMPARE(router.route("forget the last hour").args.value("minutes").toInt(), 60);
     QCOMPARE(router.route("pause memory for one hour").args.value("minutes").toInt(), 60);
     QCOMPARE(router.route("pause screen memory for half an hour").args.value("minutes").toInt(), 30);
+    QCOMPARE(router.route("pause memory for a month").args.value("minutes").toInt(), 30 * 24 * 60);
+    QCOMPARE(router.route("pause screen memory for two months").args.value("minutes").toInt(), 60 * 24 * 60);
+    QCOMPARE(router.route("forget the last month").args.value("minutes").toInt(), 30 * 24 * 60);
     QCOMPARE(router.route("pause memory").args.value("minutes").toInt(), 0);
     QCOMPARE(router.route("delete screenshots older than two weeks").args.value("days").toInt(), 14);
+    QCOMPARE(router.route("delete screenshots older than two months").args.value("days").toInt(), 60);
     QCOMPARE(router.route("open discord").args.value("name").toString(), QString("discord"));
     QCOMPARE(router.route("forget everything").args.value("range").toString(), QString("all"));
   }
