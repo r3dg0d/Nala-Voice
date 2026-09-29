@@ -840,11 +840,12 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
     });
   });
   run->sampler.start();
-  const auto finish = [llm, run, model, p, done](bool ok, const QString &note, bool toolOk) {
+  const auto finish = [self, llm, run, model, p, done](bool ok, const QString &note, bool toolOk) {
     if (run->finished)
       return;
     run->finished = true;
     run->sampler.stop();
+
     for (const auto &l : run->links)
       QObject::disconnect(l);
     BenchRow r;
@@ -859,8 +860,17 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
       r.tps = run->statTokens * 1000.0 / double(run->statMs);
     r.peakMiB = run->peakMiB;
     r.ok = ok;
-    r.note = !ok ? note : (p.tools && !toolOk ? QStringLiteral("no valid volume tool call") : QString());
-    done(r);
+    r.note = !ok ? note
+             : p.tools ? (toolOk ? QStringLiteral("answered with the right tool call")
+                                 : QStringLiteral("no valid volume tool call"))
+                       : QString();
+    // A request can finish between two samples of the GPU; take one more so
+    // its peak is not reported as unknown.
+    catalog::queryGpu(self, [r, done](catalog::Gpu g) mutable {
+      if (g.present)
+        r.peakMiB = std::max(r.peakMiB, g.usedMiB);
+      done(r);
+    });
   };
   run->links << QObject::connect(llm, &LlmClient::firstToken, self, [run](qint64 ms) { run->ttft = ms; });
   run->links << QObject::connect(llm, &LlmClient::usage, self, [run](int t, int) { run->tokens = t; });
@@ -881,13 +891,18 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
   llm->chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", p.text}}}, tools);
 }
 
-void Assistant::benchmark(std::function<void(QString)> progress, std::function<void()> done) {
-  refreshModels([this, progress, done] {
+void Assistant::benchmark(std::function<void(QString)> progress, std::function<void()> done,
+                          const QString &only) {
+  refreshModels([this, progress, done, only] {
     QStringList have;
     for (const catalog::Installed &i : m_installed)
       have << i.name;
     auto models = std::make_shared<QStringList>();
+    Role wanted;
+    const bool filtered = modelrouter::parseRole(only, &wanted);
     for (Role r : {Role::Main, Role::Fast, Role::Speed}) {
+      if (filtered && r != wanted)
+        continue;
       const QString found = modelrouter::findModel(roleModelName(r), have);
       if (!found.isEmpty() && !models->contains(found))
         *models << found;

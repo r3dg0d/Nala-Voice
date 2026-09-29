@@ -197,7 +197,9 @@ public:
   void sttStatus(std::function<void(QString)> done);
   void ttsStatus(std::function<void(QString)> done);
   // Every model, five kinds of request, measured. Streams progress lines.
-  void benchmark(std::function<void(QString)> progress, std::function<void()> done);
+  // `only` limits it to one role ("main", "fast" or "speed"); empty is all.
+  void benchmark(std::function<void(QString)> progress, std::function<void()> done,
+                 const QString &only = QString());
   // The last request's timings, or a note that there is none yet.
   QString latencyReport() const;
   // `nala memory clear screen`: forgets screen history; notes stay.

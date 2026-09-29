@@ -690,6 +690,29 @@ private slots:
              QString("low"));
   }
 
+  void nativeAlwaysSendsThinkOffButNotOnToAModelThatCannot() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/api/show"].body = "{\"capabilities\":[\"completion\",\"tools\"]}"; // no "thinking"
+    srv.replies["/api/chat"].body = "{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"done\":true}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(nativeConfig(srv, "gemma-ish"));
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.setThinkingOverride("off");
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    // Off is sent: such a model may still reason silently if it is left out.
+    QVERIFY(QJsonDocument::fromJson(srv.lastBody["/api/chat"]).object().contains("think"));
+    QCOMPARE(QJsonDocument::fromJson(srv.lastBody["/api/chat"]).object().value("think").toBool(true), false);
+    // On is withheld: the server said it cannot.
+    llm.setThinkingOverride("on");
+    QSignalSpy again(&llm, &LlmClient::replied);
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "why"}}});
+    QVERIFY(again.wait(5000));
+    QVERIFY(!QJsonDocument::fromJson(srv.lastBody["/api/chat"]).object().contains("think"));
+  }
+
   void nativeIsSkippedWhenSwitchedOff() {
     FakeServer srv;
     srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";

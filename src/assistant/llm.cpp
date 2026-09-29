@@ -397,12 +397,14 @@ QJsonObject LlmClient::nativeBody(const QJsonArray &messages, const QJsonArray &
     body.insert("keep_alive", number ? QJsonValue(seconds) : QJsonValue(m_config.keepAlive));
   }
   const QString thinking = effectiveThinking();
-  // Leave "think" out only when the server itself said this model cannot;
-  // a guess from the name is not enough to withhold it.
-  const bool canThink = !m_capabilitiesFromServer ||
+  // "Off" is always sent: measured, a model whose capability list does not
+  // mention thinking (gemma4-coder) still reasons silently when "think" is left
+  // out, and spends a short answer's whole token budget doing so. "On" is
+  // withheld only when the server itself said the model cannot think.
+  const bool think = thinking == QLatin1String("on");
+  const bool canThink = !think || !m_capabilitiesFromServer ||
                         m_capabilities.contains(QLatin1String("thinking"));
   if (extras && !m_extrasRejected && thinking != QLatin1String("server") && canThink) {
-    const bool think = thinking == QLatin1String("on");
     if (m_model.contains(QLatin1String("gpt-oss"), Qt::CaseInsensitive))
       body.insert("think", think ? "medium" : "low"); // it takes a level, and cannot be off
     else

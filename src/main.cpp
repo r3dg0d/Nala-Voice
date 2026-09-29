@@ -513,7 +513,8 @@ int main(int argc, char **argv) {
                 [guard] {
                   if (guard)
                     guard->disconnectFromServer();
-                });
+                },
+                rest);
           } else if (verb == "hear") {
             const QString error = assistant.hearFile(rest);
             reply(error.isEmpty() ? QStringLiteral("ok") : error);
