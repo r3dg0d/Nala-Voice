@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QPointer>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QTimer>
 #include <algorithm>
 
@@ -99,6 +100,39 @@ QString formatBytes(qint64 bytes) {
   if (bytes >= (1LL << 20))
     return QStringLiteral("%1 MB").arg(bytes >> 20);
   return QStringLiteral("%1 B").arg(bytes);
+}
+
+QString endpointFromOllamaHost(const QString &hostValue) {
+  QString host = hostValue.trimmed();
+  if (host.isEmpty())
+    return {};
+  QString scheme = QStringLiteral("http");
+  if (host.startsWith(QLatin1String("http://")))
+    host = host.mid(7);
+  else if (host.startsWith(QLatin1String("https://"))) {
+    host = host.mid(8);
+    scheme = QStringLiteral("https");
+  }
+  while (host.endsWith('/'))
+    host.chop(1);
+  QString name = host, port = QStringLiteral("11434");
+  const int colon = host.lastIndexOf(':');
+  if (colon >= 0 && !host.endsWith(']')) {
+    name = host.left(colon);
+    if (!host.mid(colon + 1).isEmpty())
+      port = host.mid(colon + 1);
+  }
+  bool ok = false;
+  const int portNumber = port.toInt(&ok);
+  if (!ok || portNumber < 1 || portNumber > 65535)
+    return {};
+  // A server listening on every interface is reached through loopback.
+  if (name.isEmpty() || name == QLatin1String("0.0.0.0") || name == QLatin1String("[::]"))
+    name = QStringLiteral("127.0.0.1");
+  static const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9._\\-\\[\\]:]+$"));
+  if (!valid.match(name).hasMatch())
+    return {};
+  return QStringLiteral("%1://%2:%3/v1").arg(scheme, name).arg(portNumber);
 }
 
 void queryGpu(QObject *context, std::function<void(Gpu)> done,

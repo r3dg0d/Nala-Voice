@@ -341,6 +341,13 @@ void Assistant::applySettings(const QString &key) {
 
   LlmClient::Config llm;
   llm.endpoint = QUrl(m_settings->string("llm.endpoint"));
+  // Untouched default + Ollama's own OLLAMA_HOST in the environment: follow it,
+  // so a server on another port is found without configuration.
+  if (llm.endpoint == QUrl(AssistantSettings::defaults().value("llm.endpoint").toString())) {
+    const QString fromEnv = catalog::endpointFromOllamaHost(qEnvironmentVariable("OLLAMA_HOST"));
+    if (!fromEnv.isEmpty())
+      llm.endpoint = QUrl(fromEnv);
+  }
   llm.model = m_settings->string("llm.model");
   llm.apiKey = m_settings->string("llm.apiKey");
   llm.temperature = m_settings->number("llm.temperature");

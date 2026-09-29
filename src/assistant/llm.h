@@ -110,6 +110,8 @@ public:
   void cancel();
   bool busy() const { return m_reply != nullptr; }
 
+  // What listModels reports for a server that answered with an empty list.
+  static QString noModelsMessage();
   // GET /models. Calls back with the ids, or an error.
   void listModels(std::function<void(QStringList, QString)> done);
 

@@ -283,6 +283,8 @@ QNetworkRequest LlmClient::request(const QString &path) const {
   return request;
 }
 
+QString LlmClient::noModelsMessage() { return QStringLiteral("The server lists no models."); }
+
 void LlmClient::listModels(std::function<void(QStringList, QString)> done) {
   QNetworkRequest req = request("/models");
   req.setTransferTimeout(5000);
@@ -299,8 +301,7 @@ void LlmClient::listModels(std::function<void(QStringList, QString)> done) {
     for (const QJsonValue &model : data)
       ids << model.toObject().value("id").toString();
     ids.removeAll(QString());
-    done(ids, ids.isEmpty() ? QStringLiteral("The server lists no models.")
-                            : QString());
+    done(ids, ids.isEmpty() ? noModelsMessage() : QString());
   });
 }
 

@@ -57,6 +57,11 @@ QStringList evictionPlan(const Gpu &gpu, const QVector<Loaded> &loaded,
 
 QString formatBytes(qint64 bytes);
 
+// Ollama's own OLLAMA_HOST ("127.0.0.1:11435", ":11435", "myhost", "0.0.0.0",
+// "http://box:11434") as the OpenAI-style endpoint Nala uses. Empty when it
+// says nothing usable.
+QString endpointFromOllamaHost(const QString &host);
+
 // nvidia-smi, asynchronously. Calls back with present=false when it is missing
 // or fails; never blocks.
 void queryGpu(QObject *context, std::function<void(Gpu)> done,

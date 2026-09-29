@@ -154,6 +154,9 @@ void Assistant::refreshModels(std::function<void()> then) {
     m_installed = installed;
     m_modelsError = error;
     m_modelsKnown = error.isEmpty() && !installed.isEmpty();
+    // Ollama answers /api/tags with an empty list; other servers via listModels.
+    m_serverHasNoModels = installed.isEmpty() &&
+                          (error.isEmpty() || error == LlmClient::noModelsMessage());
     if (!m_modelsKnown) {
       m_loaded.clear();
       finish();
@@ -335,6 +338,16 @@ void Assistant::think(const QString &text) {
   const auto go = [this, text, turn, routing] {
     if (turn != m_turn)
       return;
+    if (m_serverHasNoModels) {
+      // Reachable, but empty: say so, instead of asking for a model by name.
+      m_thinking = false;
+      m_log->record("llm", "no-models", {{"endpoint", m_settings->string("llm.endpoint")}});
+      say(QStringLiteral("The model server has no models installed yet. Pull one "
+                         "(for example: ollama pull gpt-oss:20b), then check "
+                         "`nala model list`."));
+      settle();
+      return;
+    }
     const ModelPick pick = pickModelFor(text);
     m_modeOnce.clear(); // "for this" covers one request
     m_modeOnceTimer.stop();

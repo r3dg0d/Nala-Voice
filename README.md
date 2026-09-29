@@ -272,7 +272,7 @@ More: [architecture](docs/ARCHITECTURE.md) · [models](docs/models.md) ·
 scripts/test.sh     # behaviour, headless
 scripts/poses.sh    # render one PNG per form, for comparing against the reference
 ctest --test-dir build   # behaviour, the install layout, and the assistant's unit tests
-build/nala-model-tests   # routing, fallback, streaming, voice chain, context, tools (135 tests, no server needed)
+build/nala-model-tests   # routing, fallback, streaming, voice chain, context, tools (139 tests, no server needed)
 
 build/nala --film build/film   # record a sequence at 60 fps, one PNG per frame
 ```

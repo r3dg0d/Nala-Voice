@@ -9,7 +9,7 @@ For whoever works on this next — person or agent. Read this, then
 main / fast / speed routing with fallback, the native Ollama API, streaming
 speech, GPU-aware loading, context summarisation, the system tools, Qwen3-TTS
 with a Fish Speech fallback, timing, `nala model|benchmark|latency|stt|tts`.
-`nala-model-tests` (135 tests, no server or GPU) covers it against fake HTTP
+`nala-model-tests` (139 tests, no server or GPU) covers it against fake HTTP
 servers.
 
 **Verified live** (RTX 4090, Ollama 0.34.3, a local Qwen 27B and gemma4-coder):

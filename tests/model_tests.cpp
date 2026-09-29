@@ -1393,6 +1393,80 @@ private slots:
     QVERIFY(out.contains("available: unknown"));
   }
 
+  void startsWithAServerThatHasNoModels() {
+    FakeServer srv;
+    srv.replies["/v1/models"].body = "{\"data\":[]}";
+    QTemporaryDir dir;
+    Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+    Assistant a(paths, true);
+    a.settings()->set("llm.endpoint", srv.url("/v1").toString());
+    QSignalSpy said(&a, &Assistant::said);
+    a.ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 10000);
+    QVERIFY2(said.first().first().toString().contains("no models"),
+             qPrintable(said.first().first().toString())); // says why, does not crash
+    QString out;
+    bool done = false;
+    a.modelCommand("status", [&](QString t) { out = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+    QVERIFY(out.contains("Main model:"));
+  }
+
+  void badToolArgumentsNeverRunAnything() {
+    Rig rig;
+    const auto call = [&](const QString &tool, const QJsonObject &args) {
+      QJsonObject result;
+      bool done = false;
+      rig.a->callTool(tool, args, [&](QJsonObject r) { result = r; done = true; });
+      for (int i = 0; i < 60 && !done; ++i)
+        QTest::qWait(50);
+      if (!done)
+        result = QJsonObject{{"error", "never answered"}};
+      return result;
+    };
+    // Out of range, wrong type, missing, unknown value: all refused by the schema.
+    QVERIFY(call("volume.set", {{"level", 150}}).value("error").toString().contains("Invalid"));
+    QVERIFY(call("volume.set", {{"level", "loud"}}).value("error").toString().contains("Invalid"));
+    QVERIFY(call("volume.set", {}).value("error").toString().contains("Invalid"));
+    QVERIFY(call("media.control", {{"action", "eject; reboot"}}).value("error").toString().contains("Invalid"));
+    QVERIFY(call("volume.mute", {{"mode", "explode"}}).value("error").toString().contains("Invalid"));
+    // A command outside the allow-list is refused with the reason, and not run.
+    const QJsonObject refused = call("system.run_safe", {{"command", "rm -rf"}});
+    QVERIFY(!refused.value("ok").toBool());
+    QVERIFY(refused.value("error").toString().contains("not on the list"));
+    const QJsonObject withPath = call("system.run_safe", {{"command", "rm -rf /"}});
+    QVERIFY(!withPath.value("ok").toBool());
+    QVERIFY(withPath.value("error").toString().contains("no paths"));
+    QVERIFY(!call("system.run_safe", {{"command", "uname | sh"}}).value("ok").toBool());
+    // Unknown tool.
+    QVERIFY(call("volume.explode", {}).value("error").toString().contains("no tool"));
+  }
+
+  void recordingAsksBeforeItStarts() {
+    Rig rig;
+    QJsonObject result;
+    bool done = false;
+    QSignalSpy asked(rig.a.get(), &Assistant::questionChanged);
+    rig.a->callTool("record.start", {}, [&](QJsonObject r) { result = r; done = true; });
+    QVERIFY(!rig.a->question().isEmpty());          // it asked, and nothing ran yet
+    QVERIFY(rig.a->question().contains("recording"));
+    QVERIFY(!done);
+    rig.a->answer(false);
+    QTRY_VERIFY_WITH_TIMEOUT(done, 3000);
+    QVERIFY(!result.value("ok").toBool());
+  }
+
+  void followsOllamaHostFromTheEnvironment() {
+    QCOMPARE(catalog::endpointFromOllamaHost("127.0.0.1:11435"), QString("http://127.0.0.1:11435/v1"));
+    QCOMPARE(catalog::endpointFromOllamaHost(":11435"), QString("http://127.0.0.1:11435/v1"));
+    QCOMPARE(catalog::endpointFromOllamaHost("0.0.0.0"), QString("http://127.0.0.1:11434/v1"));
+    QCOMPARE(catalog::endpointFromOllamaHost("http://box:11434/"), QString("http://box:11434/v1"));
+    QCOMPARE(catalog::endpointFromOllamaHost("myhost"), QString("http://myhost:11434/v1"));
+    QVERIFY(catalog::endpointFromOllamaHost("").isEmpty());
+    QVERIFY(catalog::endpointFromOllamaHost("host:notaport").isEmpty());
+    QVERIFY(catalog::endpointFromOllamaHost("bad host;rm").isEmpty());
+  }
+
   void clearsScreenHistoryOnly() {
     Rig rig;
     const QString text = rig.a->clearScreenMemory(false);

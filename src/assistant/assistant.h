@@ -423,6 +423,7 @@ private:
   QString m_modelsError;
   QElapsedTimer m_modelsAge;
   bool m_modelsKnown = false;
+  bool m_serverHasNoModels = false; // it answered, and the list was empty
   bool m_modelsRefreshing = false;
   QVector<std::function<void()>> m_modelWaiters;
   QString m_modeOnce; // "use the smart model for this": the next request only
