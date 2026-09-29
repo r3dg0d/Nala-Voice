@@ -6,6 +6,18 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.3 — 2026-09-29
+
+Scripting-friendly doctor exits, and safer barge-in without echo cancellation.
+
+### Fixed
+
+- **Barge-in echo guard**: with `wake.bargeIn` on, the wake gate temporarily
+  demands three consecutive windows and a stricter sensitivity while she is
+  speaking, so brief echoes of her own TTS are less likely to interrupt her.
+  A clear user wake still stops her. Default half-duplex (detector paused
+  while she talks) is unchanged.
+
 ### Changed
 
 - `nala doctor` exits `1` when any required (non-optional) line is `FAIL`, so

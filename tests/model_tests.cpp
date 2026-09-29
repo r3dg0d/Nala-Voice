@@ -1450,14 +1450,14 @@ private slots:
   // Scripting contract: required FAIL lines make diagnoseHasFail true;
   // optional "--" lines (voices, missing roles) do not.
   void diagnoseHasFailDetectsRequiredFailuresOnly() {
-    QVERIFY(!Assistant::diagnoseHasFail(QStringLiteral("nala 1.3.2\nok   mic: yes\n")));
+    QVERIFY(!Assistant::diagnoseHasFail(QStringLiteral("nala 1.3.3\nok   mic: yes\n")));
     QVERIFY(Assistant::diagnoseHasFail(
-        QStringLiteral("nala 1.3.2\nFAIL language model server: unreachable\n")));
+        QStringLiteral("nala 1.3.3\nFAIL language model server: unreachable\n")));
     QVERIFY(Assistant::diagnoseHasFail(
         QStringLiteral("ok   speakers: yes\nFAIL Hyprland: not running\n")));
     // Optional / soft misses print as "--", not FAIL.
     QVERIFY(!Assistant::diagnoseHasFail(
-        QStringLiteral("nala 1.3.2\n--   Qwen3-TTS: Connection refused\n"
+        QStringLiteral("nala 1.3.3\n--   Qwen3-TTS: Connection refused\n"
                        "--   fast model: not installed\n")));
     // A word "FAIL" in detail must not trip the check (prefix only).
     QVERIFY(!Assistant::diagnoseHasFail(

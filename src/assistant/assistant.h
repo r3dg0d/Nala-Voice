@@ -351,6 +351,8 @@ private:
   void say(const QString &text, bool speak = true);
   void speakNext();
   void finishSpeaking();
+  // Barge-in without AEC: tighten the wake gate while she talks.
+  void syncWakeEchoGuard();
 
   AssistantSettings *m_settings = nullptr;
   EventLog *m_log = nullptr;

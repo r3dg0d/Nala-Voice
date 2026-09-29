@@ -19,6 +19,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QUrl>
+#include <algorithm>
 #include <array>
 #include <climits>
 #include <memory>
@@ -387,10 +388,8 @@ void Assistant::applySettings(const QString &key) {
   m_followUp.setInterval(std::max(1, m_settings->integer("wake.followUpSec")) * 1000);
   m_unloadTimer.setInterval(std::max(1, m_settings->integer("llm.unloadIdleMin")) *
                             60 * 1000);
-  if (m_wake) {
-    m_wake->setSensitivity(m_settings->number("wake.sensitivity"));
-    m_wake->setConfirmation(1, m_settings->integer("wake.cooldownMs"));
-  }
+  if (m_wake)
+    syncWakeEchoGuard();
   if ((key.startsWith("wake.phrases") || key == "wake.acceptName" ||
        key == "identity.name") &&
       m_identity.wakePhrases() != oldPhrases)
@@ -1151,6 +1150,7 @@ void Assistant::stop() {
   if (m_speaking && m_wake)
     m_wake->resume(m_settings->integer("wake.postSpeechMs"));
   m_speaking = false;
+  syncWakeEchoGuard();
   m_followUp.stop();
   disarm();
   m_errorTimer.stop();
@@ -1206,6 +1206,7 @@ void Assistant::say(const QString &text, bool speak) {
   if (m_wake && !m_settings->flag("wake.bargeIn"))
     m_wake->pause();
   m_speaking = true;
+  syncWakeEchoGuard();
   settle();
   speakNext();
 }
@@ -1231,9 +1232,29 @@ void Assistant::speakNext() {
   m_tts->synthesize(m_speech.takeFirst());
 }
 
+
+void Assistant::syncWakeEchoGuard() {
+  if (!m_wake)
+    return;
+  const double sens = m_settings->number("wake.sensitivity");
+  const int cool = m_settings->integer("wake.cooldownMs");
+  // Barge-in leaves the detector live while her speakers are playing. Without
+  // echo cancellation, brief echoes of her own TTS can look like her name.
+  // Demand three consecutive windows and a stricter sensitivity so only a
+  // clear user wake interrupts her; restore the normal gate when she stops.
+  if (m_speaking && m_settings->flag("wake.bargeIn")) {
+    m_wake->setConfirmation(3, cool);
+    m_wake->setSensitivity(std::max(0.0, sens - 0.25));
+  } else {
+    m_wake->setConfirmation(1, cool);
+    m_wake->setSensitivity(sens);
+  }
+}
+
 void Assistant::finishSpeaking() {
   const bool was = m_speaking;
   m_speaking = false;
+  syncWakeEchoGuard();
   if (was) {
     m_bubbleTimer.start(4000);
     // Listen for the wake phrase again once the room has had a moment to

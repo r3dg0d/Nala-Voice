@@ -3,12 +3,13 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.2+)
+## Where things stand (1.3.3+)
 
-1.3.2 makes `nala doctor` (and `model` / `stt` / `tts` status) work when the
+1.3.3 adds a barge-in echo guard (stricter wake gate while she speaks with
+`wake.bargeIn`) and ships the doctor exit contract: `nala doctor` exits `1`
+when any required line is `FAIL` (optional `--` lines do not).
+1.3.2 made `nala doctor` (and `model` / `stt` / `tts` status) work when the
 companion is not running — a headless oneshot Assistant answers and exits.
-On `feat/multi-model` after 1.3.2, `nala doctor` also exits `1` when any
-required line is `FAIL` (optional `--` lines do not).
 1.3.1 was the packaging / headless-CLI bump: `nala --version` early-exits
 before Qt, doctor prints the version first, install-check and CI assert it,
 and NixOS docs show how to pin a release tag.
@@ -72,7 +73,8 @@ session; `ydotool`.
   target. More negative data (openWakeWord's 2000 h ACAV100M features, 17 GB)
   would likely help; not tried.
 - No echo cancellation: the detector is suspended while she speaks, so
-  interrupting her by voice needs barge-in (which risks self-wakes) or a tap.
+  interrupting her by voice needs barge-in (which applies a temporary
+  stricter wake gate / echo guard, still not true AEC) or a tap.
 - The microphone indicator shows "off" when audio is injected for testing.
 - Screen memory and window tools require Hyprland.
 - Search is full-text plus time ranges; no embeddings.

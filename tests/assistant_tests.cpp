@@ -101,8 +101,11 @@ public:
   bool registerWakeword(const wake::Model &) override { return true; }
   void removeWakeword(const QString &) override {}
   QStringList wakewords() const override { return {"hey nala"}; }
-  void setSensitivity(double) override {}
-  void setConfirmation(int, int) override {}
+  void setSensitivity(double s) override { lastSensitivity = s; }
+  void setConfirmation(int consecutive, int cooldownMs) override {
+    lastConsecutive = consecutive;
+    lastCooldown = cooldownMs;
+  }
   void fire(const QString &phrase = "hey nala") {
     wake::Detection d;
     d.phrase = phrase;
@@ -111,6 +114,9 @@ public:
   }
   bool running = false, paused = false;
   int lastGrace = -1;
+  int lastConsecutive = -1;
+  int lastCooldown = -1;
+  double lastSensitivity = -1.0;
   qint64 heard = 0;
 };
 
@@ -1237,11 +1243,20 @@ private slots:
 
     // Barge-in, when asked for: her name interrupts her.
     assistant.settings()->set("wake.bargeIn", true);
+    assistant.settings()->set("wake.sensitivity", 0.5);
+    assistant.settings()->set("wake.cooldownMs", 2000);
     assistant.setSpeakingForTest(true);
     QVERIFY(!detector.paused);
+    // Echo guard: stricter gate while her speakers may bleed into the mic.
+    QCOMPARE(detector.lastConsecutive, 3);
+    QCOMPARE(detector.lastCooldown, 2000);
+    QCOMPARE(detector.lastSensitivity, 0.25);
     detector.fire();
     QVERIFY(assistant.armed());
     QVERIFY(!assistant.speakingForTest());
+    // Back to the normal gate once she has stopped.
+    QCOMPARE(detector.lastConsecutive, 1);
+    QCOMPARE(detector.lastSensitivity, 0.5);
   }
 
   void followUpsNeedNoWakePhrase() {

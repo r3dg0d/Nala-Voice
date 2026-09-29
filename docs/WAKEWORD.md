@@ -54,7 +54,10 @@ microphone ─► 80 ms blocks ─► mel spectrogram ─► speech embedding (9
   `wake.postSpeechMs` (800 ms) before listening again, so her own voice
   cannot wake her. With **barge-in** on, it keeps listening while she speaks,
   and hearing her name stops her; without echo cancellation that risks
-  self-triggering, so it is off by default.
+  self-triggering, so it is off by default. While barge-in is active and she
+  is talking, the gate temporarily demands three consecutive windows and a
+  stricter sensitivity (configured value minus 0.25) so brief echoes of her
+  own TTS are less likely to interrupt her; a clear user wake still stops her.
 
 Everything lives in `src/assistant/wakeword.*` behind a `WakeWordBackend`
 interface (`initialize`, `start`, `stop`, `pause`, `resume`, `processAudio`,
@@ -148,7 +151,7 @@ What was tried and measured before settling on this design:
 - It is **personalised**: other people saying the phrase are caught about
   half the time. Anyone who should wake her should record samples too
   (recordings from several people can be trained together).
-- **No echo cancellation**: hence the suspension while she speaks.
+- **No echo cancellation**: hence the suspension while she speaks. Barge-in keeps listening and applies a temporary stricter gate (echo guard) instead of true AEC.
 - openWakeWord's target is under 0.5 false wakes an hour; on real speech this
   measured 0.83. The sensitivity slider trades that against recall.
 - Without the downloaded models, or before a phrase is trained, wake-word mode

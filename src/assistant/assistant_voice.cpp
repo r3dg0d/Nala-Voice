@@ -294,6 +294,7 @@ void Assistant::setSpeakingForTest(bool speaking) {
     m_speaking = true;
     if (m_wake && !m_settings->flag("wake.bargeIn"))
       m_wake->pause();
+    syncWakeEchoGuard();
     settle();
   } else {
     finishSpeaking();

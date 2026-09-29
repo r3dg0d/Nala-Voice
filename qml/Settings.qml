@@ -670,7 +670,7 @@ Window {
                 Note {
                     visible: settings.v("wake.bargeIn") === true
                     color: theme.colors.error
-                    text: "Without echo cancellation her own voice may wake her. Headphones help."
+                    text: "Without echo cancellation her own voice may wake her. While she talks the wake gate runs stricter (echo guard). Headphones still help."
                 }
                 SettingSwitch {
                     key: "ui.clickToTalk"

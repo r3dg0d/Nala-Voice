@@ -430,6 +430,7 @@ void Assistant::queueStreamedSentence(const QString &sentence) {
     if (m_wake && !m_settings->flag("wake.bargeIn"))
       m_wake->pause();
     m_speaking = true;
+    syncWakeEchoGuard();
     settle();
   }
   m_streamOpen = true;
