@@ -1,11 +1,16 @@
 #pragma once
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QElapsedTimer>
+#include <QMap>
 #include <QObject>
 #include <QPointer>
 #include <QUrl>
 #include <QVector>
 #include <functional>
+
+#include "modelcatalog.h"
+#include "sentencestream.h"
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -42,7 +47,11 @@ public:
     int maxTokens = 800;
     int timeoutSec = 90;
     QStringList preferred;
-    QString thinking = QStringLiteral("off"); // "off", "on", "server"
+    // "off", "on", "server" (leave it to the model). "auto" is resolved per
+    // request by the assistant; here it behaves as "off".
+    QString thinking = QStringLiteral("off");
+    // "auto" asks the server who it is; "ollama" and "llamacpp" say so.
+    QString provider = QStringLiteral("auto");
   };
   enum class Server { Unknown, Ollama, Other };
 
@@ -61,6 +70,20 @@ public:
   void probe(std::function<void(QString error)> done = {});
   // Ask Ollama to release the model's memory. No-op elsewhere.
   void unload();
+  void unload(const QString &model);
+
+  // Switch the model for the next request, keeping everything else. A model
+  // that differs from the last one has its abilities looked up again.
+  void useModel(const QString &model);
+  // "on" / "off" for the next requests; empty follows Config::thinking.
+  void setThinkingOverride(const QString &mode) { m_thinkOverride = mode; }
+
+  // What the server has and what it holds in memory right now. Ollama answers
+  // from /api/tags and /api/ps; other servers list ids and report nothing loaded.
+  void installedModels(std::function<void(QVector<catalog::Installed>, QString)> done);
+  void loadedModels(std::function<void(QVector<catalog::Loaded>, QString)> done);
+  // Server version for status ("0.34.3"), or an error.
+  void health(std::function<void(QString version, QString error)> done);
 
   // Pure: the first preferred model the server has, matching loosely
   // ("qwen3.8-flash-next" finds "hf.co/unsloth/Qwen3.8-Flash-Next-GGUF:Q2").
@@ -73,6 +96,10 @@ public:
 
   // One round trip. Only one is in flight; a new one cancels the last.
   void chat(const QJsonArray &messages, const QJsonArray &tools = {});
+  // The same, but the answer arrives as it is written: delta() carries the
+  // visible text (reasoning stripped), replied() still ends the turn with the
+  // whole reply and any tool calls.
+  void chatStream(const QJsonArray &messages, const QJsonArray &tools = {});
   void cancel();
   bool busy() const { return m_reply != nullptr; }
 
@@ -87,12 +114,24 @@ public:
 signals:
   void replied(const LlmReply &reply);
   void failed(const QString &reason);
+  // Streaming only. `text` is answer text, never reasoning.
+  void delta(const QString &text);
+  // Milliseconds from the request to the first token of any kind (prefill),
+  // and to the first visible answer token.
+  void prefillDone(qint64 ms);
+  void firstToken(qint64 ms);
+  // Reasoning tokens seen this reply, for the log and the benchmark.
+  void usage(int completionTokens, int reasoningTokens);
 
 private:
   QNetworkRequest request(const QString &path) const;
   QUrl root() const; // the endpoint without its /v1
   void send(const QJsonArray &messages, const QJsonArray &tools,
             bool extras = true);
+  void start(const QJsonArray &messages, const QJsonArray &tools);
+  void takeStream(QNetworkReply *reply);
+  QJsonObject streamedResponse() const;
+  QString effectiveThinking() const;
   void detect(std::function<void()> done);
 
   QNetworkAccessManager *m_network;
@@ -106,4 +145,17 @@ private:
   // Bumped by every chat() and cancel(), so a model lookup that finishes
   // after either one does not send a stale request.
   int m_generation = 0;
+  QString m_thinkOverride;
+
+  // The reply being streamed.
+  bool m_streaming = false;
+  QByteArray m_sse;
+  QString m_acc;
+  QString m_finish;
+  struct PartialCall { QString id, name, args; };
+  QMap<int, PartialCall> m_calls;
+  ThinkFilter m_filter;
+  QElapsedTimer m_clock;
+  bool m_sawToken = false, m_sawVisible = false;
+  int m_tokens = 0, m_reasoningTokens = 0;
 };

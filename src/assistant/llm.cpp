@@ -5,18 +5,21 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QUrlQuery>
 
 LlmClient::LlmClient(QNetworkAccessManager *network, QObject *parent)
     : QObject(parent), m_network(network) {}
 
 void LlmClient::configure(const Config &config) {
   if (config.endpoint != m_config.endpoint || config.model != m_config.model ||
-      config.preferred != m_config.preferred) {
+      config.preferred != m_config.preferred ||
+      config.provider != m_config.provider) {
     m_model = config.model; // re-resolve on the next request if empty
     m_capabilitiesKnown = false;
     m_capabilities.clear();
     m_extrasRejected = false;
-    if (config.endpoint != m_config.endpoint)
+    if (config.endpoint != m_config.endpoint ||
+        config.provider != m_config.provider)
       m_server = Server::Unknown;
   }
   m_config = config;
@@ -76,6 +79,12 @@ QString LlmClient::explain(const QString &error) {
 
 void LlmClient::detect(std::function<void()> done) {
   if (m_server != Server::Unknown) {
+    done();
+    return;
+  }
+  // The provider setting settles it without a round trip.
+  if (m_config.provider == QLatin1String("llamacpp")) {
+    m_server = Server::Other;
     done();
     return;
   }
@@ -147,8 +156,10 @@ void LlmClient::probe(std::function<void(QString)> done) {
   });
 }
 
-void LlmClient::unload() {
-  if (m_server != Server::Ollama || m_model.isEmpty())
+void LlmClient::unload() { unload(m_model); }
+
+void LlmClient::unload(const QString &model) {
+  if (m_server != Server::Ollama || model.isEmpty())
     return;
   QUrl url = root();
   url.setPath(url.path() + "/api/generate");
@@ -156,8 +167,98 @@ void LlmClient::unload() {
   req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
   req.setTransferTimeout(10000);
   QNetworkReply *reply = m_network->post(
-      req, QJsonDocument(QJsonObject{{"model", m_model}, {"keep_alive", 0}}).toJson());
+      req, QJsonDocument(QJsonObject{{"model", model}, {"keep_alive", 0}}).toJson());
   connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+}
+
+void LlmClient::useModel(const QString &model) {
+  if (model.isEmpty() || model == m_model)
+    return;
+  m_model = model;
+  m_capabilitiesKnown = false;
+  m_capabilities.clear();
+  // Learn what this one can do (vision, tools) without holding up the request.
+  if (m_server != Server::Unknown)
+    probe();
+}
+
+void LlmClient::installedModels(
+    std::function<void(QVector<catalog::Installed>, QString)> done) {
+  detect([this, done] {
+    if (m_server == Server::Ollama) {
+      QUrl url = root();
+      url.setPath(url.path() + "/api/tags");
+      QNetworkRequest req(url);
+      req.setTransferTimeout(4000);
+      QNetworkReply *reply = m_network->get(req);
+      connect(reply, &QNetworkReply::finished, this, [reply, done] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+          done({}, explain(reply->errorString()));
+          return;
+        }
+        done(catalog::parseTags(QJsonDocument::fromJson(reply->readAll()).object()), {});
+      });
+      return;
+    }
+    listModels([done](const QStringList &ids, const QString &error) {
+      QVector<catalog::Installed> out;
+      for (const QString &id : ids) {
+        catalog::Installed i;
+        i.name = id;
+        out.append(i);
+      }
+      done(out, ids.isEmpty() ? error : QString());
+    });
+  });
+}
+
+void LlmClient::loadedModels(
+    std::function<void(QVector<catalog::Loaded>, QString)> done) {
+  detect([this, done] {
+    if (m_server != Server::Ollama) {
+      done({}, {});
+      return;
+    }
+    QUrl url = root();
+    url.setPath(url.path() + "/api/ps");
+    QNetworkRequest req(url);
+    req.setTransferTimeout(4000);
+    QNetworkReply *reply = m_network->get(req);
+    connect(reply, &QNetworkReply::finished, this, [reply, done] {
+      reply->deleteLater();
+      if (reply->error() != QNetworkReply::NoError) {
+        done({}, explain(reply->errorString()));
+        return;
+      }
+      done(catalog::parsePs(QJsonDocument::fromJson(reply->readAll()).object()), {});
+    });
+  });
+}
+
+void LlmClient::health(std::function<void(QString, QString)> done) {
+  detect([this, done] {
+    if (m_server == Server::Ollama) {
+      QUrl url = root();
+      url.setPath(url.path() + "/api/version");
+      QNetworkRequest req(url);
+      req.setTransferTimeout(3000);
+      QNetworkReply *reply = m_network->get(req);
+      connect(reply, &QNetworkReply::finished, this, [reply, done] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+          done({}, explain(reply->errorString()));
+          return;
+        }
+        done(QJsonDocument::fromJson(reply->readAll()).object().value("version").toString(), {});
+      });
+      return;
+    }
+    listModels([done](const QStringList &ids, const QString &error) {
+      done(ids.isEmpty() ? QString() : QStringLiteral("OpenAI-compatible server"),
+           ids.isEmpty() ? error : QString());
+    });
+  });
 }
 
 QNetworkRequest LlmClient::request(const QString &path) const {
@@ -193,6 +294,16 @@ void LlmClient::listModels(std::function<void(QStringList, QString)> done) {
 }
 
 void LlmClient::chat(const QJsonArray &messages, const QJsonArray &tools) {
+  m_streaming = false;
+  start(messages, tools);
+}
+
+void LlmClient::chatStream(const QJsonArray &messages, const QJsonArray &tools) {
+  m_streaming = true;
+  start(messages, tools);
+}
+
+void LlmClient::start(const QJsonArray &messages, const QJsonArray &tools) {
   cancel();
   if (!m_model.isEmpty() && m_server != Server::Unknown) {
     send(messages, tools);
@@ -212,14 +323,20 @@ void LlmClient::chat(const QJsonArray &messages, const QJsonArray &tools) {
   });
 }
 
+QString LlmClient::effectiveThinking() const {
+  const QString mode = m_thinkOverride.isEmpty() ? m_config.thinking : m_thinkOverride;
+  return mode == QLatin1String("auto") ? QStringLiteral("off") : mode;
+}
+
 void LlmClient::send(const QJsonArray &messages, const QJsonArray &tools,
                      bool extras) {
+  const bool streaming = m_streaming;
   QJsonObject body{
       {"model", m_model},
       {"messages", messages},
       {"temperature", m_config.temperature},
       {"max_tokens", m_config.maxTokens},
-      {"stream", false},
+      {"stream", streaming},
   };
   if (!tools.isEmpty()) {
     body.insert("tools", tools);
@@ -230,26 +347,46 @@ void LlmClient::send(const QJsonArray &messages, const QJsonArray &tools,
   // answer), and ignores chat_template_kwargs; vLLM, SGLang and llama.cpp
   // pass chat_template_kwargs to the model's template, which is how Qwen
   // switches it off. If a server rejects either, it is asked again without.
+  // gpt-oss cannot switch reasoning off at all: its floor is "low".
+  const QString thinking = effectiveThinking();
   const bool useExtras = extras && !m_extrasRejected;
-  if (useExtras && m_config.thinking != QLatin1String("server")) {
-    const bool think = m_config.thinking == QLatin1String("on");
+  if (useExtras && thinking != QLatin1String("server")) {
+    const bool think = thinking == QLatin1String("on");
+    const bool gptOss = m_model.contains(QLatin1String("gpt-oss"), Qt::CaseInsensitive);
     if (m_server == Server::Ollama) {
-      if (!think)
+      if (gptOss)
+        body.insert("reasoning_effort", think ? "medium" : "low");
+      else if (!think)
         body.insert("reasoning_effort", "none");
-    } else {
+    } else if (!gptOss) {
       body.insert("chat_template_kwargs",
                   QJsonObject{{"enable_thinking", think}});
     }
   }
+  m_sse.clear();
+  m_acc.clear();
+  m_finish.clear();
+  m_calls.clear();
+  m_filter.reset();
+  m_sawToken = m_sawVisible = false;
+  m_tokens = m_reasoningTokens = 0;
+  m_clock.start();
   m_reply = m_network->post(request("/chat/completions"),
                             QJsonDocument(body).toJson(QJsonDocument::Compact));
   QNetworkReply *reply = m_reply;
-  connect(reply, &QNetworkReply::finished, this, [this, reply, useExtras, body, messages, tools] {
+  if (streaming)
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
+      if (reply == m_reply)
+        takeStream(reply);
+    });
+  connect(reply, &QNetworkReply::finished, this, [this, reply, useExtras, body, messages, tools, streaming] {
     reply->deleteLater();
     if (reply != m_reply)
       return; // cancelled or superseded: say nothing
     m_reply = nullptr;
-    const QByteArray bytes = reply->readAll();
+    if (streaming)
+      takeStream(reply); // whatever is left in the buffer
+    const QByteArray bytes = streaming ? QByteArray() : reply->readAll();
     const int status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     if (status == 400 && useExtras && !m_extrasRejected &&
@@ -261,7 +398,8 @@ void LlmClient::send(const QJsonArray &messages, const QJsonArray &tools,
     }
     if (reply->error() != QNetworkReply::NoError) {
       // Servers put the useful part of an error in the body.
-      const QString detail = QJsonDocument::fromJson(bytes)
+      const QByteArray errBody = streaming ? m_sse : bytes;
+      const QString detail = QJsonDocument::fromJson(errBody)
                                  .object()
                                  .value("error")
                                  .toObject()
@@ -271,14 +409,121 @@ void LlmClient::send(const QJsonArray &messages, const QJsonArray &tools,
       return;
     }
     QString error;
-    const LlmReply parsed =
-        parse(QJsonDocument::fromJson(bytes).object(), &error);
+    const LlmReply parsed = parse(
+        streaming ? streamedResponse() : QJsonDocument::fromJson(bytes).object(),
+        &error);
     if (!error.isEmpty()) {
       emit failed(error);
       return;
     }
+    if (streaming) {
+      // Text still held back waiting to see whether it was a tag.
+      const QString rest = m_filter.flush();
+      if (!rest.isEmpty())
+        emit delta(rest);
+      emit usage(m_tokens, m_reasoningTokens);
+    }
     emit replied(parsed);
   });
+}
+
+// Server-sent events: `data: {json}` lines, a blank line between events,
+// `data: [DONE]` at the end. Content arrives in choices[0].delta.content;
+// reasoning in .reasoning or .reasoning_content (Ollama, vLLM, llama.cpp
+// differ); tool calls in .tool_calls[] keyed by index, arguments in pieces.
+void LlmClient::takeStream(QNetworkReply *reply) {
+  const QByteArray chunk = reply->readAll();
+  // An error body is not an event stream; keep it for failed().
+  if (reply->error() != QNetworkReply::NoError ||
+      reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() >= 400) {
+    m_sse += chunk;
+    return;
+  }
+  m_sse += chunk;
+  for (;;) {
+    const int nl = m_sse.indexOf('\n');
+    if (nl < 0)
+      break;
+    const QByteArray line = m_sse.left(nl).trimmed();
+    m_sse.remove(0, nl + 1);
+    if (!line.startsWith("data:"))
+      continue;
+    const QByteArray data = line.mid(5).trimmed();
+    if (data.isEmpty() || data == "[DONE]")
+      continue;
+    const QJsonObject event = QJsonDocument::fromJson(data).object();
+    if (event.contains("error")) {
+      m_finish = QStringLiteral("error");
+      continue;
+    }
+    const QJsonArray choices = event.value("choices").toArray();
+    if (choices.isEmpty())
+      continue;
+    const QJsonObject choice = choices.first().toObject();
+    const QJsonObject d = choice.value("delta").toObject();
+    if (!choice.value("finish_reason").isNull() &&
+        !choice.value("finish_reason").toString().isEmpty())
+      m_finish = choice.value("finish_reason").toString();
+
+    const QString reasoning = d.value("reasoning").toString() +
+                              d.value("reasoning_content").toString();
+    const QString content = d.value("content").toString();
+    if (!reasoning.isEmpty() || !content.isEmpty() ||
+        d.contains("tool_calls")) {
+      if (!m_sawToken) {
+        m_sawToken = true;
+        emit prefillDone(m_clock.elapsed());
+      }
+    }
+    if (!reasoning.isEmpty())
+      ++m_reasoningTokens;
+    if (!content.isEmpty()) {
+      ++m_tokens;
+      m_acc += content;
+      const QString visible = m_filter.feed(content);
+      if (!visible.isEmpty()) {
+        if (!m_sawVisible) {
+          m_sawVisible = true;
+          emit firstToken(m_clock.elapsed());
+        }
+        emit delta(visible);
+      }
+    }
+    for (const QJsonValue &v : d.value("tool_calls").toArray()) {
+      const QJsonObject call = v.toObject();
+      PartialCall &partial = m_calls[call.value("index").toInt(int(m_calls.size()))];
+      if (call.contains("id"))
+        partial.id = call.value("id").toString();
+      const QJsonObject fn = call.value("function").toObject();
+      if (fn.contains("name"))
+        partial.name += fn.value("name").toString();
+      const QJsonValue args = fn.value("arguments");
+      if (args.isString())
+        partial.args += args.toString();
+      else if (args.isObject())
+        partial.args = QString::fromUtf8(QJsonDocument(args.toObject()).toJson(QJsonDocument::Compact));
+    }
+  }
+}
+
+// The streamed pieces, put back into the shape of a non-streaming response so
+// one parser handles both.
+QJsonObject LlmClient::streamedResponse() const {
+  QJsonObject message{{"role", "assistant"}, {"content", m_acc}};
+  if (!m_calls.isEmpty()) {
+    QJsonArray calls;
+    for (auto it = m_calls.constBegin(); it != m_calls.constEnd(); ++it)
+      calls.append(QJsonObject{{"id", it->id},
+                               {"type", "function"},
+                               {"function", QJsonObject{{"name", it->name},
+                                                        {"arguments", it->args}}}});
+    message.insert("tool_calls", calls);
+  }
+  const QString finish = m_finish.isEmpty() ? QStringLiteral("stop") : m_finish;
+  if (finish == QLatin1String("error"))
+    return {}; // parse() reports "The model sent no answer."
+  return {{"choices", QJsonArray{QJsonObject{{"message", message},
+                                             {"finish_reason", finish}}}}};
 }
 
 void LlmClient::cancel() {

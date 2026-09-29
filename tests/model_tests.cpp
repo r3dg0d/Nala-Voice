@@ -3,14 +3,93 @@
 //   QT_QPA_PLATFORM=offscreen build/nala-model-tests
 #include "contextbudget.h"
 #include "latency.h"
+#include "llm.h"
 #include "modelcatalog.h"
 #include "modelrouter.h"
 #include "sentencestream.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
+#include <QNetworkAccessManager>
+#include <QSignalSpy>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTest>
+#include <QTimer>
 
 using namespace modelrouter;
+
+namespace {
+
+// A minimal HTTP server: records each request body and answers per path.
+class FakeServer : public QObject {
+public:
+  struct Reply { int status = 200; QByteArray body; QStringList events; };
+  QTcpServer server;
+  QMap<QString, Reply> replies;          // by path
+  QList<QJsonObject> chatBodies;         // parsed /chat/completions requests
+  FakeServer() {
+    server.listen(QHostAddress::LocalHost);
+    connect(&server, &QTcpServer::newConnection, this, [this] {
+      while (QTcpSocket *sock = server.nextPendingConnection()) {
+        connect(sock, &QTcpSocket::readyRead, this, [this, sock] { onData(sock); });
+      }
+    });
+  }
+  QUrl url(const QString &path = "/v1") const {
+    return QUrl(QStringLiteral("http://127.0.0.1:%1%2").arg(server.serverPort()).arg(path));
+  }
+
+private:
+  void onData(QTcpSocket *sock) {
+    QByteArray buf = sock->property("buf").toByteArray() + sock->readAll();
+    const int end = buf.indexOf("\r\n\r\n");
+    if (end < 0) { sock->setProperty("buf", buf); return; }
+    const QByteArray head = buf.left(end);
+    int length = 0;
+    for (const QByteArray &line : head.split('\n'))
+      if (line.toLower().startsWith("content-length:"))
+        length = line.mid(15).trimmed().toInt();
+    if (buf.size() < end + 4 + length) { sock->setProperty("buf", buf); return; }
+    const QByteArray body = buf.mid(end + 4, length);
+    const QString path = QString::fromLatin1(head.split(' ').value(1));
+    if (path.endsWith("/chat/completions"))
+      chatBodies << QJsonDocument::fromJson(body).object();
+    Reply r = replies.value(path, Reply{404, "{}", {}});
+    QByteArray out = "HTTP/1.1 " + QByteArray::number(r.status) + " X\r\n"
+                     "Connection: close\r\n";
+    out += r.events.isEmpty() ? "Content-Type: application/json\r\n\r\n" + r.body
+                              : QByteArray("Content-Type: text/event-stream\r\n\r\n");
+    sock->write(out);
+    sock->flush();
+    // Events go out one at a time so the client really sees them arrive.
+    auto events = QSharedPointer<QStringList>::create(r.events);
+    auto *timer = new QTimer(sock);
+    connect(timer, &QTimer::timeout, sock, [sock, events, timer] {
+      if (events->isEmpty()) { sock->disconnectFromHost(); timer->stop(); return; }
+      sock->write("data: " + events->takeFirst().toUtf8() + "\n\n");
+      sock->flush();
+    });
+    if (r.events.isEmpty()) sock->disconnectFromHost(); else timer->start(5);
+  }
+};
+
+QString chunk(const QString &delta) {
+  return QStringLiteral("{\"choices\":[{\"delta\":%1,\"finish_reason\":null}]}").arg(delta);
+}
+QString contentChunk(const QString &text) {
+  return chunk(QStringLiteral("{\"content\":\"%1\"}").arg(text));
+}
+
+LlmClient::Config configFor(const FakeServer &s, const QString &model) {
+  LlmClient::Config c;
+  c.endpoint = s.url();
+  c.model = model;
+  c.timeoutSec = 10;
+  return c;
+}
+
+} // namespace
 
 class ModelTests : public QObject {
   Q_OBJECT
@@ -307,20 +386,194 @@ private slots:
     QVERIFY(ctx::capSummary(QString("z").repeated(5000), 100).size() <= 101);
   }
 
+  // --- the client, against a fake server ---------------------------------------
+  void streamsTextWithoutReasoning() {
+    FakeServer srv;
+    srv.replies["/v1/chat/completions"].events = {
+        chunk("{\"reasoning\":\"hmm\"}"),
+        contentChunk("<think>plan"), contentChunk("</think>Sure. "),
+        contentChunk("Opening Fire"), contentChunk("fox now."),
+        "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}", "[DONE]"};
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(configFor(srv, "m"));
+    QStringList deltas;
+    connect(&llm, &LlmClient::delta, this, [&](const QString &t) { deltas << t; });
+    QSignalSpy first(&llm, &LlmClient::firstToken);
+    QSignalSpy prefill(&llm, &LlmClient::prefillDone);
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    const auto reply = done.first().first().value<LlmReply>();
+    QCOMPARE(reply.content, QString("Sure. Opening Firefox now."));
+    QCOMPARE(deltas.join(""), QString("Sure. Opening Firefox now."));
+    QVERIFY(!deltas.join("").contains("plan"));
+    QVERIFY(deltas.size() >= 2);            // it arrived in pieces
+    QCOMPARE(first.size(), 1);
+    QCOMPARE(prefill.size(), 1);            // the reasoning token counted as prefill
+    QVERIFY(srv.chatBodies.first().value("stream").toBool());
+  }
+
+  void assemblesStreamedToolCalls() {
+    FakeServer srv;
+    srv.replies["/v1/chat/completions"].events = {
+        chunk("{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"set_volume\",\"arguments\":\"{\\\"le\"}}]}"),
+        chunk("{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"vel\\\": 40}\"}}]}"),
+        "{\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}", "[DONE]"};
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(configFor(srv, "m"));
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", "quieter"}}});
+    QVERIFY(done.wait(5000));
+    const auto reply = done.first().first().value<LlmReply>();
+    QCOMPARE(reply.toolCalls.size(), 1);
+    QCOMPARE(reply.toolCalls.first().name, QString("set_volume"));
+    QCOMPARE(reply.toolCalls.first().arguments.value("level").toInt(), 40);
+    QVERIFY(reply.toolCalls.first().argumentsValid);
+  }
+
+  void nonStreamingStillWorks() {
+    FakeServer srv;
+    srv.replies["/v1/chat/completions"].body =
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"<think>x</think>Hello.\"},\"finish_reason\":\"stop\"}]}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(configFor(srv, "m"));
+    QSignalSpy done(&llm, &LlmClient::replied);
+    llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    QCOMPARE(done.first().first().value<LlmReply>().content, QString("Hello."));
+    QVERIFY(!srv.chatBodies.first().value("stream").toBool());
+  }
+
+  void reportsServerErrorsWhileStreaming() {
+    FakeServer srv;
+    srv.replies["/v1/chat/completions"] = {500, "{\"error\":{\"message\":\"CUDA error: out of memory\"}}", {}};
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(configFor(srv, "m"));
+    QSignalSpy failed(&llm, &LlmClient::failed);
+    llm.chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(failed.wait(5000));
+    QVERIFY(failed.first().first().toString().contains("GPU memory"));
+  }
+
+  void thinkingSwitchesFollowTheServer() {
+    // Not Ollama: Qwen's template switch.
+    {
+      FakeServer srv;
+      srv.replies["/v1/chat/completions"].body =
+          "{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
+      QNetworkAccessManager net;
+      LlmClient llm(&net);
+      llm.configure(configFor(srv, "qwen3:30b-a3b"));
+      QSignalSpy done(&llm, &LlmClient::replied);
+      llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+      QVERIFY(done.wait(5000));
+      QVERIFY(!srv.chatBodies.first().value("chat_template_kwargs").toObject()
+                   .value("enable_thinking").toBool(true));
+    }
+    // Ollama, gpt-oss: reasoning cannot be turned off; "low" is the floor.
+    {
+      FakeServer srv;
+      srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+      srv.replies["/v1/chat/completions"].body =
+          "{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
+      QNetworkAccessManager net;
+      LlmClient llm(&net);
+      auto c = configFor(srv, "gpt-oss:20b");
+      c.endpoint = srv.url("/v1");
+      llm.configure(c);
+      QSignalSpy done(&llm, &LlmClient::replied);
+      llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+      QVERIFY(done.wait(5000));
+      QCOMPARE(srv.chatBodies.first().value("reasoning_effort").toString(), QString("low"));
+      // ...and thinking "on" asks for more.
+      llm.setThinkingOverride("on");
+      QSignalSpy again(&llm, &LlmClient::replied);
+      llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "why"}}});
+      QVERIFY(again.wait(5000));
+      QCOMPARE(srv.chatBodies.last().value("reasoning_effort").toString(), QString("medium"));
+    }
+  }
+
+  void switchesModelPerRequest() {
+    FakeServer srv;
+    srv.replies["/v1/chat/completions"].body =
+        "{\"choices\":[{\"message\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(configFor(srv, "big"));
+    for (const QString &m : {QString("big"), QString("small")}) {
+      llm.useModel(m);
+      QSignalSpy done(&llm, &LlmClient::replied);
+      llm.chat(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+      QVERIFY(done.wait(5000));
+    }
+    QCOMPARE(srv.chatBodies.size(), 2);
+    QCOMPARE(srv.chatBodies.at(0).value("model").toString(), QString("big"));
+    QCOMPARE(srv.chatBodies.at(1).value("model").toString(), QString("small"));
+  }
+
+  void catalogueQueriesTheServer() {
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    srv.replies["/api/tags"].body = "{\"models\":[{\"name\":\"gpt-oss:20b\",\"size\":13800000000}]}";
+    srv.replies["/api/ps"].body = "{\"models\":[{\"name\":\"gpt-oss:20b\",\"size\":14000000000,\"size_vram\":14000000000}]}";
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(configFor(srv, "gpt-oss:20b"));
+    QVector<catalog::Installed> installed;
+    QVector<catalog::Loaded> loaded;
+    QString version;
+    bool a = false, b = false, c = false;
+    llm.installedModels([&](QVector<catalog::Installed> i, QString) { installed = i; a = true; });
+    QTRY_VERIFY(a);
+    llm.loadedModels([&](QVector<catalog::Loaded> l, QString) { loaded = l; b = true; });
+    QTRY_VERIFY(b);
+    llm.health([&](QString v, QString) { version = v; c = true; });
+    QTRY_VERIFY(c);
+    QCOMPARE(installed.value(0).name, QString("gpt-oss:20b"));
+    QCOMPARE(loaded.value(0).gpuPercent(), 100);
+    QCOMPARE(version, QString("0.34.3"));
+  }
+
+  void offlineServerFailsCleanly() {
+    LlmClient::Config c;
+    c.endpoint = QUrl("http://127.0.0.1:1/v1");
+    c.model = "m";
+    c.timeoutSec = 5;
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    llm.configure(c);
+    QSignalSpy failed(&llm, &LlmClient::failed);
+    llm.chatStream(QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(failed.wait(8000));
+    QVERIFY(failed.first().first().toString().contains("model server"));
+    QVector<catalog::Installed> installed{{"x"}};
+    QString err;
+    bool done = false;
+    llm.installedModels([&](QVector<catalog::Installed> i, QString e) { installed = i; err = e; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 8000);
+    QVERIFY(installed.isEmpty());
+    QVERIFY(!err.isEmpty());
+  }
+
   // --- catalogue and GPU -----------------------------------------------------
   void parsesOllamaTagsAndPs() {
     const QJsonObject tags = QJsonDocument::fromJson(
-        R"({"models":[{"name":"gpt-oss:20b","size":13800000000,
-            "details":{"parameter_size":"20.9B","quantization_level":"MXFP4"}},
-            {"name":"qwen3:30b-a3b","size":18600000000,"details":{}}]})").object();
+        "{\"models\":[{\"name\":\"gpt-oss:20b\",\"size\":13800000000,\n"
+"            \"details\":{\"parameter_size\":\"20.9B\",\"quantization_level\":\"MXFP4\"}},\n"
+"            {\"name\":\"qwen3:30b-a3b\",\"size\":18600000000,\"details\":{}}]}").object();
     const auto installed = catalog::parseTags(tags);
     QCOMPARE(installed.size(), 2);
     QCOMPARE(installed.first().name, QString("gpt-oss:20b"));
     QCOMPARE(installed.first().quantization, QString("MXFP4"));
 
     const QJsonObject ps = QJsonDocument::fromJson(
-        R"({"models":[{"name":"qwen3:30b-a3b","size":20000000000,
-            "size_vram":15000000000,"expires_at":"2026-09-29T00:00:00Z"}]})").object();
+        "{\"models\":[{\"name\":\"qwen3:30b-a3b\",\"size\":20000000000,\n"
+"            \"size_vram\":15000000000,\"expires_at\":\"2026-09-29T00:00:00Z\"}]}").object();
     const auto loaded = catalog::parsePs(ps);
     QCOMPARE(loaded.size(), 1);
     QCOMPARE(loaded.first().gpuPercent(), 75); // 25 % runs from system RAM
