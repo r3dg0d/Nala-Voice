@@ -34,5 +34,14 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build package (flake checkPhase runs the test suites)
         run: nix build -L
-      - name: Smoke --version
-        run: ./result/bin/nala --version
+      - name: Smoke --version (headless)
+        run: |
+          set -euo pipefail
+          # Belt-and-suspenders: the binary now early-exits --version and
+          # auto-selects offscreen when no display is present, but CI still
+          # sets the QPA platform explicitly so a regression is obvious.
+          ver=$(sed -n 's/.*project(Nala VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          out=$(QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
+            ./result/bin/nala --version)
+          echo "$out"
+          test "$out" = "nala ${ver}"

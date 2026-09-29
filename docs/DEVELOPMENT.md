@@ -14,8 +14,13 @@ Without Nix, install Qt 6.10+ with Multimedia and the SQLite driver, plus
 window fails to load (the error now says which module is missing).
 
 `nix build` builds the package and runs the assistant, model and
-self-test suites in the sandbox. GitHub Actions does the same (`nix build`)
-and also checks that CMakeLists.txt, flake.nix and PKGBUILD share a version.
+self-test suites in the sandbox. `nix flake check` builds the same package
+(via the `checks.nala` output). GitHub Actions does `nix build`, checks that
+CMakeLists.txt, flake.nix and PKGBUILD share a version, then smokes
+`nala --version` under `QT_QPA_PLATFORM=offscreen` and asserts the printed
+line matches the CMake version. `--version` itself early-exits before
+`QApplication`, and any headless run (no `DISPLAY` / `WAYLAND_DISPLAY`)
+defaults the QPA platform to `offscreen` so CLI helpers do not abort.
 
 ## Tests
 

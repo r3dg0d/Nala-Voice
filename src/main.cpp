@@ -40,6 +40,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
+#include <cstdio>
 #include <memory>
 #include <unistd.h>
 
@@ -77,6 +78,31 @@ QString runtimeSocket() {
 } // namespace
 
 int main(int argc, char **argv) {
+  // Print the version before constructing QApplication so CI smoke and
+  // packaging checks never need a display or QPA plugins just for the number.
+  // Only honour the top-level flag: stop at the first positional command so
+  // `nala wakeword …` keeps its own argument handling.
+  for (int i = 1; i < argc; ++i) {
+    const char *arg = argv[i];
+    if (!arg)
+      continue;
+    if (qstrcmp(arg, "--") == 0)
+      break;
+    if (qstrcmp(arg, "-v") == 0 || qstrcmp(arg, "--version") == 0) {
+      std::fprintf(stdout, "nala %s\n", NALA_VERSION);
+      return 0;
+    }
+    if (arg[0] != '-')
+      break;
+    // Skip the value of options that take a path so
+    // `nala --config /tmp/x --version` still early-exits.
+    if (qstrcmp(arg, "--config") == 0 || qstrcmp(arg, "--capture-dir") == 0 ||
+        qstrcmp(arg, "--poses") == 0 || qstrcmp(arg, "--film") == 0) {
+      if (i + 1 < argc)
+        ++i;
+    }
+  }
+
   qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
   // Qt's QML disk cache has been seen to serve the previous build's QML after
   // an upgrade -- a new binary showing old windows. Compiling Nala's QML on
@@ -90,9 +116,16 @@ int main(int argc, char **argv) {
   QQuickWindow::setDefaultAlphaBuffer(true);
 
   // `nala wakeword …` is a tool, not the companion: no window, no second
-  // instance check.
+  // instance check. The same goes for any headless invocation (--help,
+  // doctor when nothing is running, CI): Qt aborts on construction when
+  // there is neither DISPLAY nor WAYLAND_DISPLAY and no QPA platform is set
+  // (GitHub Actions saw exit 134 from `nala --version` before the early
+  // path above). Prefer offscreen unless the caller already chose.
   const bool wakewordTool = argc > 1 && qstrcmp(argv[1], "wakeword") == 0;
-  if (wakewordTool && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+  const bool noDisplay = qEnvironmentVariableIsEmpty("DISPLAY") &&
+                         qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY");
+  if ((wakewordTool || noDisplay) &&
+      qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
     qputenv("QT_QPA_PLATFORM", "offscreen");
 
   QApplication app(argc, argv);

@@ -4,6 +4,15 @@ This project follows [semantic versioning](https://semver.org/). The version
 lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 `nala --version` reports.
 
+## Unreleased
+
+### Fixed
+
+- `nala --version` (and other CLI entry points) no longer abort with exit 134
+  on headless hosts: the version flag prints before Qt starts, and when there
+  is neither `DISPLAY` nor `WAYLAND_DISPLAY` the QPA platform defaults to
+  `offscreen`. CI smoke sets the same explicitly and checks the printed line.
+
 ## 1.3.0 — 2026-09-29
 
 A local multi-model brain, and a faster, more capable voice path. Details in

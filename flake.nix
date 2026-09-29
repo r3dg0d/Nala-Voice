@@ -65,6 +65,12 @@
         };
       });
 
+      # `nix flake check` builds the package (and runs checkPhase). Keeps CI
+      # and local verification on the same path as `nix build`.
+      checks = forAll (pkgs: {
+        nala = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      });
+
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = (qtDeps pkgs) ++ (runtimeTools pkgs)
