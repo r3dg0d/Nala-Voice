@@ -6,6 +6,10 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.8 — 2026-09-29
+
+STT status syncs the auto→cli sticky flag with a live whisper-server probe.
+
 ### Fixed
 
 - **STT status sticky sync**: `nala stt status` (auto mode) aligns the

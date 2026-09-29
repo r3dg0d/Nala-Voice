@@ -3,12 +3,12 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.7+)
+## Where things stand (1.3.8+)
 
-Unreleased: `nala stt status` in auto mode syncs the sticky auto→cli flag
-with a live probe (recover when whisper-server answers; report cli use when
-it does not). Doctor already cleared sticky on a successful probe; status
-matches that contract. Cli/server modes no longer claim a fallback.
+1.3.8: `nala stt status` in auto mode syncs the sticky auto→cli flag with a
+live probe (recover when whisper-server answers; report cli use when it does
+not). Doctor already cleared sticky on a successful probe; status matches that
+contract. Cli/server modes no longer claim a fallback.
 
 1.3.7: command-router pause/forget durations accept `month`/`months`
 (same as delete-older), so spoken month spans stay on the fast path; offline
