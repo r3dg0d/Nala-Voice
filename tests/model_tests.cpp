@@ -1443,7 +1443,8 @@ private slots:
     QVERIFY(report.contains("main model"));
     QVERIFY(report.contains("whisper-server"));
     QVERIFY(!a.micOpen()); // oneshot must never open the mic
-    QVERIFY(!Assistant::diagnoseHasFail(report));
+    // Do not assert !diagnoseHasFail here: CI sandboxes lack mic/speakers/
+    // Hyprland, which are required lines and correctly print FAIL.
   }
 
   // Scripting contract: required FAIL lines make diagnoseHasFail true;
