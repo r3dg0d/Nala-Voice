@@ -211,16 +211,22 @@ int main(int argc, char **argv) {
                         verb == "tts";
       const bool benchmark = verb == "benchmark";
       QTextStream out(stdout);
+      QByteArray body;
       if (client.waitForReadyRead(benchmark ? 600000 : slow ? 20000 : 2500)) {
-        out << client.readAll();
-        out.flush();
+        body += client.readAll();
         while (client.state() == QLocalSocket::ConnectedState &&
                client.waitForReadyRead(benchmark ? 1800000 : 500)) {
-          out << client.readAll();
-          out.flush();
+          body += client.readAll();
         }
-        out << client.readAll();
+        body += client.readAll();
       }
+      out << body;
+      out.flush();
+      // Scripts: non-zero when any required doctor line is FAIL (optional
+      // lines print as "--" and do not fail the exit).
+      if (verb == "doctor" &&
+          Assistant::diagnoseHasFail(QString::fromUtf8(body)))
+        return 1;
       return 0;
     }
     // Not running: a profile can still be read or written straight from the
@@ -340,6 +346,8 @@ int main(int argc, char **argv) {
         return 1;
       }
       QTextStream(stdout) << out.trimmed() << "\n";
+      if (requested == "doctor" && Assistant::diagnoseHasFail(out))
+        return 1;
       return 0;
     }
     if (requested == "status" || requested == "quit" ||

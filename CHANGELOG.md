@@ -6,6 +6,12 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+### Changed
+
+- `nala doctor` exits `1` when any required (non-optional) line is `FAIL`, so
+  scripts can trust the exit status. Optional misses still print as `--` and
+  do not fail the exit. Docs and CI assert the contract.
+
 ## 1.3.2 — 2026-09-29
 
 Doctor and status work when she is not running. Troubleshooting no longer

@@ -3,10 +3,12 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.2)
+## Where things stand (1.3.2+)
 
 1.3.2 makes `nala doctor` (and `model` / `stt` / `tts` status) work when the
 companion is not running — a headless oneshot Assistant answers and exits.
+On `feat/multi-model` after 1.3.2, `nala doctor` also exits `1` when any
+required line is `FAIL` (optional `--` lines do not).
 1.3.1 was the packaging / headless-CLI bump: `nala --version` early-exits
 before Qt, doctor prints the version first, install-check and CI assert it,
 and NixOS docs show how to pin a release tag.
@@ -15,7 +17,7 @@ and NixOS docs show how to pin a release tag.
 main / fast / speed routing with fallback, the native Ollama API, streaming
 speech, GPU-aware loading, context summarisation, the system tools, Qwen3-TTS
 with a Fish Speech fallback, timing, `nala model|benchmark|latency|stt|tts`.
-`nala-model-tests` (139 tests, no server or GPU) covers it against fake HTTP
+`nala-model-tests` (142 tests, no server or GPU) covers it against fake HTTP
 servers.
 
 **Verified live** (RTX 4090, Ollama 0.34.3, a local Qwen 27B and gemma4-coder):

@@ -1443,6 +1443,47 @@ private slots:
     QVERIFY(report.contains("main model"));
     QVERIFY(report.contains("whisper-server"));
     QVERIFY(!a.micOpen()); // oneshot must never open the mic
+    QVERIFY(!Assistant::diagnoseHasFail(report));
+  }
+
+  // Scripting contract: required FAIL lines make diagnoseHasFail true;
+  // optional "--" lines (voices, missing roles) do not.
+  void diagnoseHasFailDetectsRequiredFailuresOnly() {
+    QVERIFY(!Assistant::diagnoseHasFail(QStringLiteral("nala 1.3.2\nok   mic: yes\n")));
+    QVERIFY(Assistant::diagnoseHasFail(
+        QStringLiteral("nala 1.3.2\nFAIL language model server: unreachable\n")));
+    QVERIFY(Assistant::diagnoseHasFail(
+        QStringLiteral("ok   speakers: yes\nFAIL Hyprland: not running\n")));
+    // Optional / soft misses print as "--", not FAIL.
+    QVERIFY(!Assistant::diagnoseHasFail(
+        QStringLiteral("nala 1.3.2\n--   Qwen3-TTS: Connection refused\n"
+                       "--   fast model: not installed\n")));
+    // A word "FAIL" in detail must not trip the check (prefix only).
+    QVERIFY(!Assistant::diagnoseHasFail(
+        QStringLiteral("ok   note: said FAIL in detail\n")));
+  }
+
+  // Unreachable LLM → required FAIL on language model server (oneshot).
+  void oneshotDiagnoseFailsWhenLanguageServerDown() {
+    FakeServer stt;
+    stt.replies["/"].status = 200;
+    stt.replies["/"].body = "ok";
+    QTemporaryDir dir;
+    Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+    Assistant a(paths, Assistant::Mode::Oneshot);
+    a.settings()->set("llm.endpoint", QStringLiteral("http://127.0.0.1:1/v1"));
+    a.settings()->set("stt.serverUrl", stt.url("/").toString());
+    a.settings()->set("stt.activation", "push");
+    a.settings()->set("tts.engine", "none");
+    a.settings()->set("memory.enabled", false);
+    QString report;
+    bool done = false;
+    a.diagnose([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+    QVERIFY2(report.contains(QStringLiteral("FAIL")), qPrintable(report.left(400)));
+    QVERIFY(report.contains("language model server"));
+    QVERIFY(Assistant::diagnoseHasFail(report));
+    QVERIFY(!a.micOpen());
   }
 
   void badToolArgumentsNeverRunAnything() {

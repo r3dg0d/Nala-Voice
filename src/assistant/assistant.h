@@ -223,6 +223,9 @@ public:
   // human-readable report.
   Q_INVOKABLE void diagnose();
   void diagnose(std::function<void(QString)> done);
+  // True when a diagnose() report has a required (non-optional) FAIL line.
+  // Scripts use this: `nala doctor` exits 1 when it is true.
+  static bool diagnoseHasFail(const QString &report);
 
   // Memory timeline and its controls, for the QML pages.
   Q_INVOKABLE QVariantList timeline(const QString &text, const QString &app,

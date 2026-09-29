@@ -55,7 +55,15 @@ jobs:
           set -euo pipefail
           ver=$(sed -n 's/.*project(Nala VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           # Companion is not running on CI: oneshot diagnose must still answer.
+          # Exit 1 when any required line is FAIL (mic/Hyprland absent on CI).
+          code=0
           report=$(QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
-            ./result/bin/nala doctor)
+            ./result/bin/nala doctor) || code=$?
           echo "$report" | head -20
+          echo "doctor exit: $code"
           echo "$report" | head -1 | grep -qx "nala ${ver}"
+          if echo "$report" | grep -q '^FAIL'; then
+            test "$code" -ne 0
+          else
+            test "$code" -eq 0
+          fi

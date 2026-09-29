@@ -1402,6 +1402,14 @@ QString Assistant::formatBytes(qint64 bytes) const {
 
 // --- health ----------------------------------------------------------------------
 
+bool Assistant::diagnoseHasFail(const QString &report) {
+  for (const QString &line : report.split(QLatin1Char('\n'))) {
+    if (line.startsWith(QLatin1String("FAIL")))
+      return true;
+  }
+  return false;
+}
+
 void Assistant::diagnose() {
   diagnose([](const QString &) {});
 }
