@@ -64,6 +64,11 @@ and [docs/tools.md](docs/tools.md).
   whole token budget on it. "Off" is now always sent.
 - A key named `..._token` in a log record was redacted as a secret; timing keys
   no longer look like credentials.
+- PKGBUILD still advertised 1.2.0 and skipped `nala-model-tests`. It now matches
+  1.3.0, runs all three test binaries, and lists the new runtime optdepends.
+- GitHub Actions runs `nix build` (the flake already executes the unit suites
+  and the self-test in `checkPhase`) and checks that CMakeLists, flake.nix and
+  PKGBUILD share a version.
 
 ## 1.2.0 — 2026-09-23
 

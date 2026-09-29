@@ -13,7 +13,9 @@ Without Nix, install Qt 6.10+ with Multimedia and the SQLite driver, plus
 `QML_IMPORT_PATH` and `QT_PLUGIN_PATH` pointed at the Qt store paths, or the
 window fails to load (the error now says which module is missing).
 
-`nix build` builds the package and runs both test suites in the sandbox.
+`nix build` builds the package and runs the assistant, model and
+self-test suites in the sandbox. GitHub Actions does the same (`nix build`)
+and also checks that CMakeLists.txt, flake.nix and PKGBUILD share a version.
 
 ## Tests
 

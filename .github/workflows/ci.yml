@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-sync:
+    name: Version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: CMakeLists, flake.nix and PKGBUILD versions agree
+        run: |
+          set -euo pipefail
+          cmake_ver=$(sed -n 's/.*project(Nala VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          flake_ver=$(sed -n 's/^[[:space:]]*version = "\([0-9.]*\)";.*/\1/p' flake.nix | head -1)
+          pkg_ver=$(sed -n 's/^pkgver=\(.*\)/\1/p' PKGBUILD)
+          echo "CMakeLists=$cmake_ver flake=$flake_ver PKGBUILD=$pkg_ver"
+          test -n "$cmake_ver"
+          test "$cmake_ver" = "$flake_ver"
+          test "$cmake_ver" = "$pkg_ver"
+          grep -q "## ${cmake_ver} " CHANGELOG.md
+
+  build:
+    name: Nix build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build package (flake checkPhase runs the test suites)
+        run: nix build -L
+      - name: Smoke --version
+        run: ./result/bin/nala --version
