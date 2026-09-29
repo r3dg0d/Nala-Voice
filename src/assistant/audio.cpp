@@ -292,9 +292,22 @@ void Speaker::finish() { m_inputDone = true; }
 
 void Speaker::stop() { end(true); }
 
+// The output device died mid-stream (unplugged, PipeWire restarted). Without
+// this, pump() waits forever for a sink that never drains and the assistant
+// stays "speaking"; failed() lets her give up on the voice and settle.
+void Speaker::sinkFailed(const QString &reason) {
+  end(false);
+  emit failed(reason);
+}
+
 void Speaker::pump() {
   if (!m_sink || !m_io)
     return;
+  if (m_sink->error() != QAudio::NoError) {
+    sinkFailed(QStringLiteral("The audio output stopped (audio error %1).")
+                   .arg(int(m_sink->error())));
+    return;
+  }
   const int frameBytes = std::max(1, m_format.bytesPerFrame());
   qsizetype room = m_sink->bytesFree();
   room -= room % frameBytes;

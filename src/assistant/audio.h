@@ -100,6 +100,8 @@ public:
   void stop();
   bool playing() const { return m_sink != nullptr; }
   double level() const { return m_level; }
+  // Behave as if the output device errored mid-stream. For tests.
+  void simulateSinkErrorForTest(const QString &reason) { sinkFailed(reason); }
 
 signals:
   void started();
@@ -110,6 +112,7 @@ signals:
 private:
   void pump();
   void end(bool emitFinished);
+  void sinkFailed(const QString &reason);
 
   std::unique_ptr<QAudioSink> m_sink;
   QPointer<QIODevice> m_io;

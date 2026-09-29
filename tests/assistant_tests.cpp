@@ -1753,6 +1753,17 @@ private slots:
     QVERIFY(!mic.reconnecting());
   }
 
+  void speakerSinkErrorReportsFailureAndStops() {
+    Speaker speaker;
+    QSignalSpy failed(&speaker, &Speaker::failed);
+    QSignalSpy finished(&speaker, &Speaker::finished);
+    speaker.simulateSinkErrorForTest("output gone");
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.first().first().toString(), QString("output gone"));
+    QVERIFY(!speaker.playing());
+    QCOMPARE(finished.count(), 0);
+  }
+
   void toolSchemaIsWellFormed() {
     QTemporaryDir dir;
     Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);

@@ -15,6 +15,10 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
   logs `microphone-recovered` when it is back. A mic that follows the system
   default moves to a new default device when it changes. Turning the mic off
   cancels the retry.
+- **Speaker device loss**: an output device that errors mid-reply used to leave
+  playback waiting on a sink that never drained, so she stayed "speaking". The
+  speaker now reports the failure, and she drops the rest of the reply and
+  settles (voice marked broken until the TTS cooldown ends).
 
 ### Fixed
 
