@@ -3,7 +3,11 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.4+)
+## Where things stand (1.3.5+)
+
+1.3.5: oneshot no longer arms screen capture when memory is enabled;
+`nala memory status|pause|resume|clear screen` works without a live companion
+(same headless path as doctor).
 
 1.3.4 clears `m_voiceBroken` after the TtsChain cooldown so a returning voice
 server is found without a settings tweak, and joins Fish/Qwen `/v1/...` paths

@@ -796,6 +796,30 @@ void Assistant::modelCommand(const QString &args, std::function<void(QString)> r
                        "mode auto|main|fast|speed|thinking off|on|auto|routing on|off|unload]"));
 }
 
+QString Assistant::memoryCommand(const QString &args) {
+  const QString what = args.section(' ', 0, 0);
+  if (what == "pause") {
+    m_memory->pause(args.section(' ', 1, 1).toInt());
+  } else if (what == "resume") {
+    m_memory->resume();
+  } else if (what == "clear") {
+    const QString target = args.section(' ', 1, 1);
+    if (target != "screen") {
+      return QStringLiteral(
+          "usage: nala memory clear screen [all]   (screen history only; "
+          "notes stay, and pinned memories stay unless you say \"all\")");
+    }
+    return clearScreenMemory(args.section(' ', 2, 2) == "all");
+  } else if (what != "status" && !what.isEmpty()) {
+    return QStringLiteral(
+        "usage: nala memory pause [minutes] | resume | status | clear screen [all]");
+  }
+  return QStringLiteral("screen memory %1, %2 memories, %3")
+      .arg(m_memory->status())
+      .arg(m_memory->count())
+      .arg(formatBytes(m_memory->storageBytes()));
+}
+
 QString Assistant::clearScreenMemory(bool includePinned) {
   if (!m_store)
     return QStringLiteral("Screen memory is unavailable.");

@@ -89,9 +89,13 @@ history is over it, the oldest unpinned pictures go first, so it cannot grow
 without limit. Descriptions (the rows) have their own age limit
 (`memory.semanticDays`). Pinned memories are spared by every automatic rule.
 
-Clear it yourself:
+Clear it yourself (works even when she is not running):
 
 ```bash
+nala memory status              # off / paused / recording, count, size
+nala memory pause               # until resumed (survives restart)
+nala memory pause 60            # for one hour
+nala memory resume
 nala memory clear screen        # all screen history; notes and pinned memories stay
 nala memory clear screen all    # ...including pinned ones
 ```

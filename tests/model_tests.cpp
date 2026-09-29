@@ -1540,14 +1540,14 @@ private slots:
   // Scripting contract: required FAIL lines make diagnoseHasFail true;
   // optional "--" lines (voices, missing roles) do not.
   void diagnoseHasFailDetectsRequiredFailuresOnly() {
-    QVERIFY(!Assistant::diagnoseHasFail(QStringLiteral("nala 1.3.4\nok   mic: yes\n")));
+    QVERIFY(!Assistant::diagnoseHasFail(QStringLiteral("nala 1.3.5\nok   mic: yes\n")));
     QVERIFY(Assistant::diagnoseHasFail(
-        QStringLiteral("nala 1.3.4\nFAIL language model server: unreachable\n")));
+        QStringLiteral("nala 1.3.5\nFAIL language model server: unreachable\n")));
     QVERIFY(Assistant::diagnoseHasFail(
         QStringLiteral("ok   speakers: yes\nFAIL Hyprland: not running\n")));
     // Optional / soft misses print as "--", not FAIL.
     QVERIFY(!Assistant::diagnoseHasFail(
-        QStringLiteral("nala 1.3.4\n--   Qwen3-TTS: Connection refused\n"
+        QStringLiteral("nala 1.3.5\n--   Qwen3-TTS: Connection refused\n"
                        "--   fast model: not installed\n")));
     // A word "FAIL" in detail must not trip the check (prefix only).
     QVERIFY(!Assistant::diagnoseHasFail(
@@ -1575,6 +1575,64 @@ private slots:
     QVERIFY(report.contains("language model server"));
     QVERIFY(Assistant::diagnoseHasFail(report));
     QVERIFY(!a.micOpen());
+  }
+
+  // Oneshot must never arm screen capture, even when memory.enabled is on in
+  // the settings file (doctor / memory CLI without a window).
+  void oneshotNeverArmsScreenCaptureWhenMemoryEnabled() {
+    QTemporaryDir dir;
+    {
+      AssistantSettings seed(dir.filePath("assistant.json"), true);
+      QVERIFY(seed.set("memory.enabled", true));
+      QVERIFY(seed.set("memory.paused", false));
+      seed.flush();
+    }
+    Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+    Assistant a(paths, Assistant::Mode::Oneshot);
+    QCOMPARE(a.settings()->flag("memory.enabled"), true);
+    QVERIFY(a.memory()->offlineForTest());
+    QVERIFY(!a.memory()->captureActiveForTest());
+    QVERIFY(!a.micOpen());
+    // Status still reflects the configured intent (recording when she is live).
+    QCOMPARE(a.memory()->status(), QString("recording"));
+  }
+
+  // `nala memory …` oneshot: pause/resume/status without a companion, and the
+  // pause survives a fresh oneshot load (settings flush).
+  void oneshotMemoryCommandPauseStatusResume() {
+    QTemporaryDir dir;
+    Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+    {
+      Assistant a(paths, Assistant::Mode::Oneshot);
+      QVERIFY(a.memory()->offlineForTest());
+      QVERIFY(!a.memory()->captureActiveForTest());
+      const QString status = a.memoryCommand("status");
+      QVERIFY2(status.startsWith("screen memory off"), qPrintable(status));
+      // status() prefers "off" over "paused" when memory.enabled is false;
+      // enable so pause is visible in the CLI line (flag is set either way).
+      QVERIFY(a.settings()->set("memory.enabled", true));
+      const QString paused = a.memoryCommand("pause 60");
+      QVERIFY2(paused.contains("paused"), qPrintable(paused));
+      QVERIFY(a.memory()->paused());
+      QVERIFY(!a.memory()->captureActiveForTest()); // oneshot stays offline
+      QCOMPARE(a.memoryCommand("bogus"),
+               QString("usage: nala memory pause [minutes] | resume | status | clear screen [all]"));
+      QCOMPARE(a.memoryCommand("clear junk"),
+               QString("usage: nala memory clear screen [all]   (screen history only; "
+                       "notes stay, and pinned memories stay unless you say \"all\")"));
+      const QString cleared = a.memoryCommand("clear screen");
+      QVERIFY2(cleared.startsWith("Forgot "), qPrintable(cleared));
+    }
+    // Fresh oneshot must still see the pause written to disk.
+    {
+      Assistant b(paths, Assistant::Mode::Oneshot);
+      QVERIFY(b.memory()->paused());
+      QVERIFY(b.memoryCommand(QString()).contains("paused"));
+      const QString resumed = b.memoryCommand("resume");
+      QVERIFY2(resumed.contains("off") || resumed.contains("recording"),
+               qPrintable(resumed));
+      QVERIFY(!b.memory()->paused());
+    }
   }
 
   void badToolArgumentsNeverRunAnything() {

@@ -208,6 +208,9 @@ public:
                  const QString &only = QString());
   // The last request's timings, or a note that there is none yet.
   QString latencyReport() const;
+  // `nala memory …`: status / pause [minutes] / resume / clear screen [all].
+  // Same wording whether the companion is live or answering as oneshot.
+  QString memoryCommand(const QString &args);
   // `nala memory clear screen`: forgets screen history; notes stay.
   QString clearScreenMemory(bool includePinned);
   ModelPick lastPick() const { return m_pick; }

@@ -2,8 +2,9 @@
 
 Start with `nala doctor`. It lists what is installed and running and what is
 missing, and each line says how to fix it. It works whether or not the
-companion is already running (as do `nala model status`, `nala stt status` and
-`nala tts status`). Then dig into whichever line failed.
+companion is already running (as do `nala model status`, `nala stt status`,
+`nala tts status`, and `nala memory status|pause|resume|clear screen`). Then dig
+into whichever line failed.
 
 Required checks print `ok` or `FAIL`; optional ones print `--` when missing
 (voices, extra model roles, desktop helpers). For scripts, `nala doctor` exits

@@ -86,7 +86,9 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
   m_summaryLlm = new LlmClient(&m_network, this);
   m_benchLlm = new LlmClient(&m_network, this);
   m_memory = new ScreenMemory(m_settings, m_store.get(), m_log, m_memoryLlm, this);
-  if (m_testing)
+  // Testing and oneshot (doctor / status / memory CLI without a window) must
+  // never arm screen capture or retention sweeps — privacy and no side effects.
+  if (m_testing || m_oneshot)
     m_memory->setOffline(true);
 
   m_memory->setVisionCheck([this] { return visionEnabled(); });

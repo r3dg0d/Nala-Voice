@@ -70,6 +70,9 @@ public:
 
   // Test seam: stop the capture timer and the helpers from running.
   void setOffline(bool offline);
+  // Oneshot/doctor must never arm capture; tests assert that.
+  bool offlineForTest() const { return m_offline; }
+  bool captureActiveForTest() const { return m_capture.isActive(); }
 
   // Why the last frame was not kept, for the developer page. Never the title.
   QString lastSkip() const { return m_lastSkip; }

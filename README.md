@@ -107,7 +107,7 @@ nala ask open discord       # as if you had said it
 nala stop                   # stop talking / thinking / acting
 nala memory pause 60        # pause screen memory (minutes; omit for "until resumed")
 nala memory resume
-nala memory status
+nala memory status          # works without the companion (same oneshot path as doctor)
 nala memory clear screen    # forget screen history (notes and pinned memories stay)
 nala timeline               # the memory window
 

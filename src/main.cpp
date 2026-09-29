@@ -295,13 +295,16 @@ int main(int argc, char **argv) {
         return ok ? 0 : 1;
       }
     }
-    // Diagnostics work without a live companion. Docs tell people to start
-    // with `nala doctor` when something is wrong — often she is not running.
-    // Spin up a headless Assistant, answer, and exit (no window, no socket).
+    // Diagnostics and privacy controls work without a live companion. Docs
+    // tell people to start with `nala doctor` when something is wrong — often
+    // she is not running. Memory pause/status/clear must also work headless so
+    // a user can stop screen recording before she starts. Spin up a headless
+    // Assistant, answer, and exit (no window, no socket, no screen capture).
     const bool oneshotDiag =
         requested == "doctor" || requested == "model" ||
         requested.startsWith("model ") || requested == "stt status" ||
-        requested == "tts status";
+        requested == "tts status" || requested == "memory" ||
+        requested.startsWith("memory ");
     if (oneshotDiag) {
       Assistant::Paths paths;
       const QString configDir =
@@ -317,30 +320,38 @@ int main(int argc, char **argv) {
       Assistant assistant(paths, Assistant::Mode::Oneshot);
 
       QString out;
-      QEventLoop loop;
-      QTimer timeout;
-      timeout.setSingleShot(true);
-      timeout.setInterval(25000);
-      QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
-      const auto finish = [&](const QString &text) {
-        out = text;
-        loop.quit();
-      };
-      if (requested == "doctor") {
-        assistant.diagnose(finish);
-      } else if (requested == "stt status") {
-        assistant.sttStatus(finish);
-      } else if (requested == "tts status") {
-        assistant.ttsStatus(finish);
-      } else {
-        // model / model <args>
-        const QString args = requested == "model"
+      // Memory commands are synchronous (settings + store); no network wait.
+      if (requested == "memory" || requested.startsWith("memory ")) {
+        const QString args = requested == "memory"
                                  ? QString()
                                  : requested.section(' ', 1).trimmed();
-        assistant.modelCommand(args, finish);
+        out = assistant.memoryCommand(args);
+      } else {
+        QEventLoop loop;
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        timeout.setInterval(25000);
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        const auto finish = [&](const QString &text) {
+          out = text;
+          loop.quit();
+        };
+        if (requested == "doctor") {
+          assistant.diagnose(finish);
+        } else if (requested == "stt status") {
+          assistant.sttStatus(finish);
+        } else if (requested == "tts status") {
+          assistant.ttsStatus(finish);
+        } else {
+          // model / model <args>
+          const QString args = requested == "model"
+                                   ? QString()
+                                   : requested.section(' ', 1).trimmed();
+          assistant.modelCommand(args, finish);
+        }
+        timeout.start();
+        loop.exec();
       }
-      timeout.start();
-      loop.exec();
       if (out.isEmpty()) {
         QTextStream(stderr) << "Timed out waiting for a reply.\n";
         return 1;
@@ -351,7 +362,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (requested == "status" || requested == "quit" ||
-        requested.startsWith("ask ") || requested.startsWith("memory") ||
+        requested.startsWith("ask ") ||
         requested == "latency" || requested == "benchmark" ||
         requested.startsWith("benchmark ")) {
       QTextStream(stderr) << "Nala is not running.\n";
@@ -620,29 +631,7 @@ int main(int argc, char **argv) {
             backend.openTimeline();
             reply("ok");
           } else if (verb == "memory") {
-            const QString what = rest.section(' ', 0, 0);
-            if (what == "pause") {
-              assistant.memory()->pause(rest.section(' ', 1, 1).toInt());
-            } else if (what == "resume") {
-              assistant.memory()->resume();
-            } else if (what == "clear") {
-              const QString target = rest.section(' ', 1, 1);
-              if (target != "screen") {
-                reply("usage: nala memory clear screen [all]   (screen history only; "
-                      "notes stay, and pinned memories stay unless you say \"all\")");
-                return;
-              }
-              reply(assistant.clearScreenMemory(rest.section(' ', 2, 2) == "all"));
-              return;
-            } else if (what != "status" && !what.isEmpty()) {
-              reply("usage: nala memory pause [minutes] | resume | status | clear screen [all]");
-              return;
-            }
-            reply(QStringLiteral("screen memory %1, %2 memories, %3")
-                      .arg(assistant.memory()->status())
-                      .arg(assistant.memory()->count())
-                      .arg(assistant.formatBytes(
-                          assistant.memory()->storageBytes())));
+            reply(assistant.memoryCommand(rest));
           } else {
             backend.command(name);
             reply("ok");

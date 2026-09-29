@@ -6,6 +6,23 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.5 — 2026-09-29
+
+Oneshot privacy for screen memory, and `nala memory` when she is not running.
+
+### Fixed
+
+- **Oneshot privacy**: `nala doctor` / `model` / `stt|tts status` (and the new
+  headless memory CLI) no longer arm screen capture or retention sweeps when
+  `memory.enabled` is on. Previously oneshot left the capture timer running.
+
+### Added
+
+- **`nala memory` without a companion**: `status`, `pause [minutes]`, `resume`
+  and `clear screen [all]` work headless (same oneshot path as doctor), so you
+  can pause or wipe screen history before she starts. Pause still persists in
+  settings across restarts.
+
 ## 1.3.4 — 2026-09-29
 
 TTS recovery after chain cooldown, and safer Fish/Qwen endpoint path joins.
