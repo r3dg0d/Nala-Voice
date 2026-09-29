@@ -59,9 +59,13 @@ Nala, resume screen memory" still resumes it).
 
 ## The model
 
-### Qwen3.8-Flash-Next: the recommended brain
+Nala uses three local models (main, fast, speed) and routes between them; that
+is described in [models.md](models.md), which is the place to start. What
+follows is background on individual models and servers.
 
-Nala is set up around [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)
+### Qwen3.8-Flash-Next: an option for a bigger machine
+
+Nala can use [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)
 (open weights, qwen-community-1.0 licence): a mixture-of-experts model with
 125B parameters of which 6B are active per token, plus 51B of n-gram
 embeddings, reading text, images and video, with a 262k context. With
@@ -88,7 +92,8 @@ development machine here (RTX 4090, 32 GB RAM) it does not fit at all, and it
 was **not** run; Nala there used the next preference, a local Qwen 27B.
 
 **Thinking.** Flash-Next reasons before it answers by default, which costs
-seconds before she speaks. `llm.thinking` is `off` by default, and Nala sends
+seconds before she speaks. `llm.thinking` is `auto` by default (off unless the main model gets a request
+that needs reasoning), and when it is off Nala sends
 the switch each server understands: `chat_template_kwargs:
 {"enable_thinking": false}` for vLLM, SGLang and llama.cpp (Qwen's template
 switch), `reasoning_effort: "none"` for Ollama. Measured on Ollama 0.33 with a

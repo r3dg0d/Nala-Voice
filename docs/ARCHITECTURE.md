@@ -76,6 +76,15 @@ an allow-listed set of these settings between machines.
 | `memory.*` | SQLite store (FTS5 when available), artifacts, retention, perceptual hash, artifact extraction. |
 | `screenmemory.*` | The capture pipeline, pause/resume, retention timer, optional vision judging and descriptions. |
 | `assistant.*` | Orchestration: state machine, fast actions, the agent loop, confirmations, speaking, tool implementations, diagnostics, timeline data. |
+| `assistant_models.cpp` | The local-model layer: choosing main / fast / speed per request, fallback and retry, GPU preparation, streaming the answer into the voice, conversation summary, timing, and the `nala model`, `stt`, `tts`, `benchmark` commands. See [models.md](models.md). |
+| `assistant_tools.cpp` | Volume, media, clock, clipboard, notifications, screenshots, video recording and read-only commands, and their fast path. See [tools.md](tools.md). |
+| `modelrouter.*` | Pure: request → role, fallback order, loose name matching, "use the fast model" phrases. |
+| `contextbudget.*` | Pure: the token budget, recent-turn window, tool-output clipping and the summary request. |
+| `modelcatalog.*` | Ollama's model lists and `nvidia-smi` parsed; the VRAM eviction plan. |
+| `sentencestream.*` | Pure: sentence chunking for speech, markdown clean-up, and the filter that keeps `<think>` out of the voice. |
+| `latency.*` | Per-stage timings and the report. |
+| `systemtools.*` | Pure: command lines for the desktop tools, and the allow-list. |
+| `tts.*` | Qwen3-TTS (OpenAI-compatible speech API) and the chain that falls back to Fish Speech. |
 | `assistant_voice.cpp` | The wake word in the assistant: arming, the chime, training sessions, model download, profiles, setup. |
 | `identity.*` | Who she is, and everything derived from it; profiles. |
 | `wakeword.*` | Wake-word engine: ONNX features, negative bank, trainer (augmentation, logistic regression, DTW templates, calibration), gate, `WakeWordBackend` / `NeuralBackend`. |
@@ -109,10 +118,14 @@ purpose.
 ## The agent loop
 
 1. Transcript → `CommandRouter`. A match runs a fast action (tools included,
-   through the same permission path).
-2. Otherwise the model gets: system prompt (persona, time, memory status,
-   vision capability), the last `llm.contextTurns` exchanges, the request, and
-   the tool schema for enabled categories.
+   through the same permission path). "Use the fast model" and similar phrases
+   are handled here too.
+2. Otherwise `modelrouter` picks a role, the model list decides which model
+   that is (with fallback), the GPU is made ready, and the model gets: system
+   prompt (persona, time, memory status, vision capability), a short summary of
+   older turns, the recent turns that fit `llm.contextTokens`, the request, and
+   the tool schema for enabled categories. The answer streams; the voice starts
+   on the first full sentence ([voice-pipeline.md](voice-pipeline.md)).
 3. Each tool call is validated against its schema, checked against its
    category switch and risk, possibly confirmed with the user, run, logged,
    and its result fed back. Screenshots go back as images.

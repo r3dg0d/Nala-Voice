@@ -4,6 +4,67 @@ This project follows [semantic versioning](https://semver.org/). The version
 lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 `nala --version` reports.
 
+## 1.3.0 — 2026-09-29
+
+A local multi-model brain, and a faster, more capable voice path. Details in
+[docs/models.md](docs/models.md), [docs/voice-pipeline.md](docs/voice-pipeline.md)
+and [docs/tools.md](docs/tools.md).
+
+### Added
+
+- **Three local models** -- main (Qwen3.8-27B), fast (`gpt-oss:20b`) and speed
+  (`qwen3:30b-a3b`), names configurable and matched loosely. A cheap word-based
+  router sends reasoning, code and long requests to main and short chat to
+  fast; `llm.mode`, `llm.autoRouting` and `llm.route.*` override it. Missing
+  models are replaced by the next role, a model that fails at run time is retried
+  once on another local model, and nothing ever falls back to a non-local one.
+  "Use the fast model", "use the smart model for this", "switch back to
+  automatic model selection" by voice, without rewriting defaults unless asked
+  ("from now on").
+- **Native Ollama API** (`llm.ollamaNative`): the context window
+  (`llm.contextTokens`, 16384), keep-alive, exact thinking control and Ollama's
+  own token timings. Measured on an RTX 4090: a 27B whose Modelfile says
+  131072 went from 27 GB / 22% on CPU / 52 s to first token to 18 GB / 100% GPU /
+  449 ms. The OpenAI-compatible path remains for llama.cpp, vLLM and others.
+- **Streaming** answers, spoken from the first full sentence (never a clipped
+  fragment, never the model's reasoning), with the bubble filling in as it
+  arrives. `llm.thinking` gained `auto`.
+- **GPU-aware loading**: unload other models first if the next would not fit,
+  and prefer a smaller role over a model bigger than the card (`llm.manageVram`).
+- **Context management**: recent turns within a token budget, older turns folded
+  into a running summary by the fast model, tool output clipped.
+- **Deterministic commands** for volume (`wpctl`), media (`playerctl`), the
+  clock, locking, screenshots and video recording, plus model tools for the
+  clipboard, notifications, system info and an allow-listed set of read-only
+  commands; `tts.confirmCommands` makes trivial commands silent.
+- **Qwen3-TTS** through any OpenAI-compatible speech server, with automatic
+  fallback to Fish Speech (`tts.engine`: auto, qwen, fish, none). Not yet run
+  against a live Qwen3-TTS server.
+- **CLI**: `nala model status|list|main|fast|speed|mode|thinking|routing|unload`,
+  `nala stt status`, `nala tts status`, `nala latency`, `nala benchmark
+  [role]`, `nala --ptt`, `nala memory clear screen [all]`. `nala doctor` checks
+  the three models, both voices, GPU spill and the desktop helpers.
+- **Latency**: every stage timed; `nala latency`, and printed as it happens with
+  `developer.debug`.
+- **Screen history retention** by name (`memory.screenshotRetention`: off, 1h,
+  1d, 7d, 30d, manual), checked every five minutes.
+
+### Changed
+
+- `llm.preferred` starts with `qwen3.8-27b`; Flash-Next is now an option for a
+  bigger machine rather than the recommendation. `llm.thinking` defaults to
+  `auto`, `llm.contextTurns` to 20. `tts.engine` defaults to `auto`.
+- The flake's runtime tools include `wpctl`, `playerctl`, `wl-clipboard` and
+  `notify-send`, and its check phase runs the new test suite.
+
+### Fixed
+
+- Found by measuring: a model whose capability list omits thinking (gemma4)
+  still reasons silently when `think` is left out, so a short answer used its
+  whole token budget on it. "Off" is now always sent.
+- A key named `..._token` in a log record was redacted as a secret; timing keys
+  no longer look like credentials.
+
 ## 1.2.0 — 2026-09-23
 
 ### Added

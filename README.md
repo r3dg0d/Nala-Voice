@@ -8,12 +8,35 @@ changes.
 
 This fork, **Nala-Voice**, also makes her a fully local voice assistant: say
 "Hey Nala" and she looks up — a tiny on-device wake-word detector, trained on
-your own voice — then she listens through whisper.cpp, thinks with any
-OpenAI-compatible local model (Qwen3.8-Flash-Next recommended; Ollama,
-llama.cpp, vLLM), answers in a speech bubble and through Fish Speech, can act on the desktop through a
-permissioned set of tools, and — only if you turn it on — keeps an episodic
-memory of what you worked on, with a privacy switch that works without the
-model. Nothing leaves your machine. See [The assistant](#the-assistant).
+your own voice — then she listens through whisper.cpp, handles simple commands
+("turn the volume down to 40%") herself in milliseconds, and thinks about
+everything else with the right one of **three local models** — a main model
+(Qwen3.8-27B) for reasoning and code, and two fast ones (`gpt-oss:20b`,
+`qwen3:30b-a3b`) for quick answers — through Ollama or llama.cpp. She answers in
+a speech bubble and aloud, starting on the first sentence while the rest is still
+being written, through Qwen3-TTS with Fish Speech as a fallback. She can act on
+the desktop through a permissioned set of tools, and — only if you turn it on —
+keeps an episodic memory of what you worked on, with a privacy switch that works
+without any model. Nothing leaves your machine. See [The assistant](#the-assistant).
+
+```mermaid
+flowchart TD
+    Mic --> WakeWord
+    WakeWord --> Whisper[whisper.cpp]
+    Whisper --> Router{Command router}
+    Router -->|volume, media, time, apps, privacy| DirectTools[Direct tools]
+    Router -->|everything else| ModelRouter{Model router}
+    ModelRouter -->|short chat| FastLLM[Fast: gpt-oss:20b]
+    ModelRouter -->|reasoning, code| MainLLM[Main: Qwen3.8-27B]
+    ModelRouter -.->|optional| SpeedLLM[Speed: qwen3:30b-a3b]
+    FastLLM --> Tools[Structured tools]
+    MainLLM --> Tools
+    FastLLM --> TTS[Qwen3-TTS]
+    MainLLM --> TTS
+    TTS -.->|fallback| Fish[Fish Speech]
+    TTS --> Audio
+    DirectTools --> Audio
+```
 
 ## Requirements
 
@@ -25,8 +48,9 @@ model. Nothing leaves your machine. See [The assistant](#the-assistant).
 - Noctalia — optional; without it Nala falls back to her own dark palette
 
 For the assistant, all optional and reported by `nala doctor` when missing:
-whisper.cpp, an OpenAI-compatible model server, Fish Speech, `grim`,
-`wtype`, `ydotool`.
+whisper.cpp, a model server (Ollama, or llama.cpp / anything OpenAI-compatible),
+a Qwen3-TTS server (OpenAI-compatible) and/or Fish Speech, `grim`, `wtype`,
+`ydotool`, `wpctl` and `playerctl` (volume and media), `wl-clipboard`.
 
 ## Install
 
@@ -78,13 +102,24 @@ nala reset        # move her back to her default corner
 nala quit
 
 # the assistant
-nala listen                 # push to talk (bind this to a key)
+nala listen                 # push to talk (bind this to a key); nala --ptt is the same
 nala ask open discord       # as if you had said it
 nala stop                   # stop talking / thinking / acting
 nala memory pause 60        # pause screen memory (minutes; omit for "until resumed")
 nala memory resume
 nala memory status
+nala memory clear screen    # forget screen history (notes and pinned memories stay)
 nala timeline               # the memory window
+
+# the models (docs/models.md)
+nala model status           # backend, GPU, each model, routing, thinking, STT, TTS
+nala model list             # what the server has
+nala model main qwen3.8-27b # (or fast / speed) choose a model for a role
+nala model mode auto        # auto | main | fast | speed
+nala benchmark              # time every model on five kinds of request
+nala latency                # where the last request's time went
+nala stt status
+nala tts status
 nala doctor                 # what is installed, running, and missing
 nala setup                  # the first-run wizard again
 nala profile export ~/nala-profile.json   # name, wake phrases, personality, voice
@@ -162,8 +197,13 @@ missing.
 | Push-to-talk, click-to-talk, follow-up conversation without repeating her name | implemented |
 | whisper.cpp speech recognition (`whisper-server` or `whisper-cli`) | implemented |
 | Fast command router — pause memory, stop, open settings, open apps… without the model | implemented |
-| Any OpenAI-compatible model, with tool calling and optional vision | implemented |
+| Three local models (main / fast / speed), routed per request, with fallback, GPU-aware loading and a running summary of older turns | implemented; measured on an RTX 4090, see [docs/models.md](docs/models.md) |
+| Ollama (native API: exact context window, keep-alive, thinking) or any OpenAI-compatible server, with tool calling and optional vision | implemented |
+| Streaming answers, spoken from the first full sentence; reasoning never spoken | implemented |
+| Volume, media, clock, clipboard, notification, screenshot, lock, video recording, read-only commands: fast path and tools | implemented ([docs/tools.md](docs/tools.md)) |
+| Qwen3-TTS voice (OpenAI-compatible speech API) with automatic Fish Speech fallback | implemented; tested against fake servers, **not** a live Qwen3-TTS server ([docs/voice-pipeline.md](docs/voice-pipeline.md)) |
 | Fish Speech voice, streamed, interruptible, with a text fallback | implemented (tested against its API; see [docs/AI.md](docs/AI.md)) |
+| Per-stage latency timing, `nala latency`, `nala benchmark`, `nala doctor` | implemented |
 | Speech bubble, yes/no confirmation card, listening meter | implemented |
 | Computer use: windows, apps, files, browser, mouse and keyboard, shell | implemented; mouse/keyboard experimental |
 | Screen memory with privacy gate, dedup, retention, storage cap, timeline | implemented |
@@ -172,6 +212,9 @@ missing.
 
 **Say it** (or `nala ask` it):
 
+- "Hey Nala, turn the volume down to 40%." / "Pause." / "Next song." / "What time is it?" — no model involved.
+- "Explain how Nix flakes pin their inputs." — the main model. "Tell me a joke." — the fast one.
+- "Use the fast model." / "Use the smart model for this." / "Switch back to automatic model selection."
 - "Hey Nala, open Discord." / "Close all windows." / "Open settings."
 - "Stop." / "Never mind." — interrupts speech, thinking and actions. Tapping her works too.
 - "Pause screen memory." / "Pause memory for one hour." / "Turn screen recording back on."
@@ -182,7 +225,9 @@ missing.
 the setup wizard:
 
 ```bash
-ollama pull qwen2.5vl     # an example; any model works — pick it in Preferences → Assistant
+ollama pull gpt-oss:20b        # the fast model
+ollama pull qwen3:30b-a3b      # the speed model
+nala model main <your Qwen3.8-27B tag>   # the main model; `nala model list` shows what you have
 mkdir -p ~/.local/share/nala/whisper
 whisper-cpp-download-ggml-model base.en ~/.local/share/nala/whisper   # "download-ggml-model.sh" outside Nix
 nala doctor
@@ -209,9 +254,17 @@ frame already being processed. Password managers, logins, banking, private
 browsing and adult content are never kept, and you can exclude any app or
 window. See [docs/PRIVACY.md](docs/PRIVACY.md).
 
-More: [architecture](docs/ARCHITECTURE.md) · [AI setup](docs/AI.md) ·
-[wake word](docs/WAKEWORD.md) · [memory](docs/MEMORY.md) · [privacy](docs/PRIVACY.md) ·
-[development](docs/DEVELOPMENT.md) · [handoff notes](HANDOFF.md)
+**Local-first.** Nala talks only to servers on your machine unless you point
+`llm.endpoint` elsewhere. A missing or failing model is replaced by another
+local one, never a hosted service. Nothing is downloaded without you running the
+command.
+
+More: [architecture](docs/ARCHITECTURE.md) · [models](docs/models.md) ·
+[voice pipeline](docs/voice-pipeline.md) · [tools](docs/tools.md) ·
+[AI setup](docs/AI.md) · [NixOS](docs/nixos.md) · [wake word](docs/WAKEWORD.md) ·
+[memory](docs/MEMORY.md) · [privacy](docs/PRIVACY.md) ·
+[troubleshooting](docs/troubleshooting.md) · [development](docs/DEVELOPMENT.md) ·
+[handoff notes](HANDOFF.md)
 
 ## Tests
 
@@ -219,6 +272,7 @@ More: [architecture](docs/ARCHITECTURE.md) · [AI setup](docs/AI.md) ·
 scripts/test.sh     # behaviour, headless
 scripts/poses.sh    # render one PNG per form, for comparing against the reference
 ctest --test-dir build   # behaviour, the install layout, and the assistant's unit tests
+build/nala-model-tests   # routing, fallback, streaming, voice chain, context, tools (135 tests, no server needed)
 
 build/nala --film build/film   # record a sequence at 60 fps, one PNG per frame
 ```

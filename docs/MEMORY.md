@@ -40,10 +40,12 @@ are recorded as artifacts too.
 
 ## Retention
 
-Applied every 30 minutes and after every 20 new memories:
+Applied every five minutes and after every 20 new memories:
 
-1. Screenshots older than `memory.screenshotDays` (default 7) are deleted;
-   their rows — the description — stay.
+1. Screenshots older than the retention are deleted; their rows — the
+   description — stay. The retention is `memory.screenshotRetention` (`off`,
+   `1h`, `1d`, `7d`, `30d`, `manual`) or, by default (`custom`),
+   `memory.screenshotDays` (7). See [PRIVACY.md](PRIVACY.md#how-long-pictures-are-kept).
 2. Rows older than `memory.semanticDays` (default forever) are deleted.
 3. While the total is over `memory.maxStorageMB` (default 5 GB), the oldest
    unpinned screenshots are deleted, only as many as needed.

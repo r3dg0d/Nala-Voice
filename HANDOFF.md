@@ -3,7 +3,27 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.2.0)
+## Where things stand (1.3.0)
+
+1.3.0 added the multi-model layer (see [docs/models.md](docs/models.md)):
+main / fast / speed routing with fallback, the native Ollama API, streaming
+speech, GPU-aware loading, context summarisation, the system tools, Qwen3-TTS
+with a Fish Speech fallback, timing, `nala model|benchmark|latency|stt|tts`.
+`nala-model-tests` (135 tests, no server or GPU) covers it against fake HTTP
+servers.
+
+**Verified live** (RTX 4090, Ollama 0.34.3, a local Qwen 27B and gemma4-coder):
+routing to the right model, VRAM eviction before a load, the 16384 context at
+100% GPU, warm first token 449 ms, `nala model status|list`, `nala doctor`,
+`nala benchmark`, `nala latency`, whisper-server and ydotoold as services.
+
+**Not verified:** a live Qwen3-TTS server (none installed; the client is written
+against the documented `/v1/audio/speech` API and tested against a fake), Fish
+Speech, `gpt-oss:20b` and `qwen3:30b-a3b` (not installed on the development
+machine), the speech path with a real audio device, `record.start` with a real
+recorder, clipboard/notification tools against a live compositor.
+
+## Where things stood at 1.2.0
 
 This fork adds a local voice assistant to yappologistic's Nala companion. 1.1.0
 added the assistant; 1.2.0 added the wake word, the assistant's identity, the
@@ -63,6 +83,15 @@ session; `ydotool`.
 5. Embedding search for memories; a browser integration for real URLs.
 
 ## Conventions
+
+- Model choice lives in `modelrouter`/`contextbudget`/`modelcatalog` (pure,
+  tested); `assistant_models.cpp` only connects them. Do not put routing rules in
+  `assistant.cpp`.
+- Every desktop command line is built in `systemtools.cpp` as program + args,
+  never a shell string.
+- Ollama's OpenAI-compatible endpoint cannot set the context window; that is why
+  `LlmClient` has a native path. Check `nala model status` for CPU spill after
+  changing models.
 
 - Settings: declared once in `src/assistant/settings.cpp`; validated, never
   clamped.

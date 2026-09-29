@@ -54,6 +54,59 @@ never given a tool to resume screen memory.
 
 The rest of the assistant keeps working while memory is paused.
 
+## Voice controls
+
+All of these are handled by the command router, without a model, and none of
+them can be undone by the model. Say them in your own words:
+
+| Say | Effect |
+| --- | --- |
+| "Stop screen recording." / "Turn off screen memory." / "Stop looking at my screen." / "Go private." | stops capture at once and discards any frame in flight; also stops a video recording she started |
+| "Pause screen memory for an hour." | the same, for a while |
+| "Resume screen recording." / "Turn screen memory back on." | starts again -- **only by voice or the tray, never by the model** |
+
+When capture is off: no screenshot is taken, none is processed, no visual
+context reaches a model, and nothing restarts on its own. The struck-through eye
+on her body shows the state.
+
+**Video recording is a different thing** from screen memory: "start a video
+recording" asks first and saves a file you can keep to `~/Videos/Recordings/`.
+"Stop recording" stops that too.
+
+## How long pictures are kept
+
+`memory.screenshotRetention` (Preferences → Memory), applied every five minutes:
+
+| Value | Meaning |
+| --- | --- |
+| `off` | pictures are kept only long enough to be described, then deleted |
+| `1h` `1d` `7d` `30d` | deleted once older than that |
+| `manual` | never deleted by age (the storage cap still applies) |
+| `custom` (default) | `memory.screenshotDays` days, 7 by default |
+
+The **storage cap** (`memory.maxStorageMB`, default 5 GB) always applies: when
+history is over it, the oldest unpinned pictures go first, so it cannot grow
+without limit. Descriptions (the rows) have their own age limit
+(`memory.semanticDays`). Pinned memories are spared by every automatic rule.
+
+Clear it yourself:
+
+```bash
+nala memory clear screen        # all screen history; notes and pinned memories stay
+nala memory clear screen all    # ...including pinned ones
+```
+
+Notes you asked her to keep, and files or pages she recorded, are not screen
+history and are not touched. "Forget everything" by voice still asks first.
+
+## The models are local
+
+Requests go only to the model server you configured, on your machine by
+default. Falling back from one model to another only ever picks another
+*local* model; nothing switches to a hosted service. Pointing `llm.endpoint`
+at a remote server is a choice you make, and then transcripts (and screenshots,
+if vision is on) go there.
+
 ## What is never kept
 
 The privacy gate runs **before** the screen is read, on the focused window's

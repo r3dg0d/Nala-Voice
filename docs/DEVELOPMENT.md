@@ -22,6 +22,7 @@ window fails to load (the error now says which module is missing).
 | `nala --self-test` | the companion's behaviour and measurements (145 checks), opening every window; fails on any QML warning | `scripts/test.sh` or ctest |
 | `nala-install` | install layout, the unit's `ExecStart`, the binary runs | ctest |
 | `nala-assistant-tests` | identity and profiles, the wake-word gate/trainer/model and its integration (mock detector, scripted recogniser), router, VAD, WAV, settings, redaction, model replies, schema validation, permissions, path policy, privacy gate, time phrases, hashing, memory store and retention, the screen-memory killswitch, `.desktop` parsing, the assistant end to end | ctest, or run it directly |
+| `nala-model-tests` | the multi-model layer against fake HTTP servers (no Ollama, GPU or audio device needed): routing and fallback, run-time retry, voice switching, thinking payloads for both Ollama APIs, streaming and reasoning removal, sentence chunking, the Qwen3-TTS / Fish Speech chain, context budget and summary, catalogue and VRAM planning, latency, the system-tool command lines and their allow-list, retention, `nala model` commands, status output | ctest, or run it directly |
 
 The assistant tests unset `HYPRLAND_INSTANCE_SIGNATURE` so that no test can
 reach the compositor of the desktop they run on.
