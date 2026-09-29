@@ -1302,7 +1302,11 @@ private slots:
 
   void picksTheRecommendedModel() {
     const QStringList preferred = AssistantSettings::defaults().value("llm.preferred").toStringList();
-    QCOMPARE(preferred.first(), QString("qwen3.8-flash-next"));
+    // The 27B dense model is the main brain; Flash-Next is still preferred to
+    // any other Qwen when the 27B is not installed.
+    QCOMPARE(preferred.first(), QString("qwen3.8-27b"));
+    QCOMPARE(LlmClient::pickModel({"qwen3:8b", "qwen3.8:27b-q4_K_M"}, preferred),
+             QString("qwen3.8:27b-q4_K_M"));
     QCOMPARE(LlmClient::pickModel({"gemma4:latest", "hf.co/unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ1_S",
                                    "qwen3:8b"},
                                   preferred),

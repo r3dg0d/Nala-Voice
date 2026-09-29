@@ -31,10 +31,15 @@ qt_add_library(nala_assistant STATIC
   src/assistant/audio.cpp src/assistant/audio.h
   src/assistant/audioutil.cpp src/assistant/audioutil.h
   src/assistant/commandrouter.cpp src/assistant/commandrouter.h
+  src/assistant/contextbudget.cpp src/assistant/contextbudget.h
+  src/assistant/latency.cpp src/assistant/latency.h
+  src/assistant/modelcatalog.cpp src/assistant/modelcatalog.h
+  src/assistant/sentencestream.cpp src/assistant/sentencestream.h
   src/assistant/desktop.cpp src/assistant/desktop.h
   src/assistant/eventlog.cpp src/assistant/eventlog.h
   src/assistant/llm.cpp src/assistant/llm.h
   src/assistant/memory.cpp src/assistant/memory.h
+  src/assistant/modelrouter.cpp src/assistant/modelrouter.h
   src/assistant/policy.cpp src/assistant/policy.h
   src/assistant/screenmemory.cpp src/assistant/screenmemory.h
   src/assistant/settings.cpp src/assistant/settings.h
@@ -131,3 +136,10 @@ target_link_libraries(nala-assistant-tests PRIVATE nala_assistant Qt6::Test)
 add_test(NAME nala-assistant-tests COMMAND nala-assistant-tests)
 set_tests_properties(nala-assistant-tests PROPERTIES ENVIRONMENT
   "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;HYPRLAND_INSTANCE_SIGNATURE=")
+
+# The multi-model layer: routing, fallback, streaming, context, catalogue.
+qt_add_executable(nala-model-tests tests/model_tests.cpp)
+target_link_libraries(nala-model-tests PRIVATE nala_assistant Qt6::Test)
+add_test(NAME nala-model-tests COMMAND nala-model-tests)
+set_tests_properties(nala-model-tests PROPERTIES ENVIRONMENT
+  "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=")

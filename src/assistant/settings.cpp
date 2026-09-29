@@ -41,8 +41,35 @@ const QVector<Spec> &specs() {
       // needs to run.
       {"llm.model", Kind::String, QString()},
       {"llm.preferred", Kind::List,
-       QStringList{"qwen3.8-flash-next", "qwen3.8-omni", "qwen3-omni",
-                   "qwen3.8", "qwen3", "qwen"}},
+       QStringList{"qwen3.8-27b", "qwen3.8-flash-next", "qwen3.8-omni",
+                   "qwen3-omni", "qwen3.8", "qwen3", "qwen"}},
+      // Three local roles. Names are matched loosely against what the server
+      // lists ("qwen3-30b-a3b" finds "qwen3:30b-a3b"), so the exact tag is
+      // not baked in. Main empty means llm.model / llm.preferred as before.
+      {"llm.mainModel", Kind::String, QString()},
+      {"llm.fastModel", Kind::String, QStringLiteral("gpt-oss:20b")},
+      {"llm.speedModel", Kind::String, QStringLiteral("qwen3:30b-a3b")},
+      // auto: route each request; main / fast / speed: always that role.
+      {"llm.mode", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "main", "fast", "speed"}},
+      {"llm.autoRouting", Kind::Bool, true},
+      // Role per kind of request while routing automatically. "auto" leaves
+      // it to the classifier.
+      {"llm.route.conversation", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "main", "fast", "speed"}},
+      {"llm.route.tools", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "main", "fast", "speed"}},
+      {"llm.route.coding", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "main", "fast", "speed"}},
+      {"llm.route.summary", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "main", "fast", "speed"}},
+      {"llm.route.classify", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "main", "fast", "speed"}},
+      // Fallback order per role, e.g. ["fast", "speed", "main"]. Empty uses
+      // the built-in order. Never falls back to a cloud model.
+      {"llm.fallback.main", Kind::List, QStringList()},
+      {"llm.fallback.fast", Kind::List, QStringList()},
+      {"llm.fallback.speed", Kind::List, QStringList()},
       // Thinking models reason before answering; for a voice that costs
       // seconds. Off by default.
       {"llm.thinking", Kind::Choice, QStringLiteral("off"), 0, 0,
