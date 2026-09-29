@@ -66,7 +66,7 @@ ScreenMemory::ScreenMemory(AssistantSettings *settings, MemoryStore *store,
     : QObject(parent), m_settings(settings), m_store(store), m_log(log),
       m_llm(llm) {
   connect(&m_capture, &QTimer::timeout, this, &ScreenMemory::tick);
-  m_retention.setInterval(30 * 60 * 1000);
+  m_retention.setInterval(5 * 60 * 1000); // fine enough for "1h" and "off"
   connect(&m_retention, &QTimer::timeout, this, [this] { sweep(); });
   m_resumeAt.setSingleShot(true);
   connect(&m_resumeAt, &QTimer::timeout, this, [this] {
@@ -427,12 +427,29 @@ void ScreenMemory::describeNext() {
       visionMessage(QString::fromLatin1(kDescribePrompt), file.readAll())});
 }
 
+int ScreenMemory::retentionMinutes(const QString &retention) {
+  if (retention == QLatin1String("off"))
+    return 1; // a picture is kept only long enough to be described
+  if (retention == QLatin1String("1h"))
+    return 60;
+  if (retention == QLatin1String("1d"))
+    return 24 * 60;
+  if (retention == QLatin1String("7d"))
+    return 7 * 24 * 60;
+  if (retention == QLatin1String("30d"))
+    return 30 * 24 * 60;
+  // "custom" follows memory.screenshotDays; "manual" never expires by age
+  // (the storage cap still applies, so the history cannot grow without limit).
+  return 0;
+}
+
 MemoryStore::Sweep ScreenMemory::sweep() {
   const MemoryStore::Sweep result = m_store->enforce(
       m_settings->integer("memory.screenshotDays"),
       m_settings->integer("memory.semanticDays"),
       qint64(m_settings->integer("memory.maxStorageMB")) * 1024 * 1024,
-      QDateTime::currentDateTime());
+      QDateTime::currentDateTime(),
+      retentionMinutes(m_settings->string("memory.screenshotRetention")));
   if (result.screenshots || result.rows)
     m_log->record("memory", "retention",
                   {{"screenshots", result.screenshots},

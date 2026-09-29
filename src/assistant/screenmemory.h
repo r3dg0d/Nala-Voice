@@ -35,6 +35,10 @@ class ScreenMemory : public QObject {
   Q_PROPERTY(qint64 storageBytes READ storageBytes NOTIFY stored)
 
 public:
+  // Pure: minutes a picture is kept for a retention name, 0 when the name
+  // defers to memory.screenshotDays or means "until cleared".
+  static int retentionMinutes(const QString &retention);
+
   ScreenMemory(AssistantSettings *settings, MemoryStore *store, EventLog *log,
                LlmClient *llm, QObject *parent = nullptr);
 

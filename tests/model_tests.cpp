@@ -6,7 +6,11 @@
 #include "latency.h"
 #include "llm.h"
 #include "modelcatalog.h"
+#include "memory.h"
 #include "modelrouter.h"
+#include "screenmemory.h"
+#include "settings.h"
+#include "assistant.h"
 #include "audioutil.h"
 #include "sentencestream.h"
 #include "systemtools.h"
@@ -16,6 +20,7 @@
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTest>
@@ -34,6 +39,8 @@ public:
   QList<QJsonObject> chatBodies;         // parsed /chat/completions requests
   QStringList paths;                     // every request path, in order
   QMap<QString, QByteArray> lastBody;    // by path
+  // When set, decides the reply for /chat/completions from the request body.
+  std::function<Reply(const QJsonObject &)> chat;
   FakeServer() {
     server.listen(QHostAddress::LocalHost);
     connect(&server, &QTcpServer::newConnection, this, [this] {
@@ -64,6 +71,8 @@ private:
     if (path.endsWith("/chat/completions"))
       chatBodies << QJsonDocument::fromJson(body).object();
     Reply r = replies.value(path, Reply{404, "{}", {}});
+    if (path.endsWith("/chat/completions") && chat)
+      r = chat(chatBodies.last());
     QByteArray out = "HTTP/1.1 " + QByteArray::number(r.status) + " X\r\n"
                      "Connection: close\r\n";
     out += r.events.isEmpty() ? "Content-Type: application/json\r\n\r\n" + r.body
@@ -87,6 +96,15 @@ QString chunk(const QString &delta) {
 }
 QString contentChunk(const QString &text) {
   return chunk(QStringLiteral("{\"content\":\"%1\"}").arg(text));
+}
+
+// The events of a streamed plain-text answer, in small pieces.
+QStringList streamOf(const QString &text, int piece = 6) {
+  QStringList events;
+  for (int i = 0; i < text.size(); i += piece)
+    events << contentChunk(QString(text.mid(i, piece)).replace("\"", "\\\""));
+  events << "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}" << "[DONE]";
+  return events;
 }
 
 LlmClient::Config configFor(const FakeServer &s, const QString &model) {
@@ -876,6 +894,361 @@ private slots:
     QTest::qWait(300);
     QCOMPARE(done.size(), 0);
     QCOMPARE(audioSpy.size(), 0);
+  }
+
+  // --- the assistant, end to end against a fake model server -------------------------
+private:
+  struct Rig {
+    QTemporaryDir dir;
+    FakeServer srv;
+    std::unique_ptr<Assistant> a;
+    explicit Rig(const QStringList &installed = {"big-27b:q4", "gpt-oss:20b", "qwen3:30b-a3b"}) {
+      Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+      a = std::make_unique<Assistant>(paths, true);
+      auto *s = a->settings();
+      s->set("llm.endpoint", srv.url("/v1").toString());
+      s->set("llm.mainModel", "big-27b");
+      s->set("llm.fastModel", "gpt-oss:20b");
+      s->set("llm.speedModel", "qwen3-30b-a3b");
+      s->set("llm.thinking", "off");
+      s->set("memory.enabled", false);
+      a->setInstalledModels(installed);
+      srv.chat = [](const QJsonObject &body) {
+        FakeServer::Reply r;
+        r.events = streamOf("Answer from " + body.value("model").toString() + ".");
+        return r;
+      };
+    }
+    QString modelOf(int i) const { return srv.chatBodies.value(i).value("model").toString(); }
+    bool waitForReplies(int n) {
+      QSignalSpy said(a.get(), &Assistant::said);
+      for (int i = 0; i < 100 && said.size() < n; ++i)
+        QTest::qWait(50);
+      return said.size() >= n;
+    }
+  };
+
+private slots:
+  void routesEachRequestToTheRightModel() {
+    Rig rig;
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
+    QCOMPARE(rig.modelOf(0), QString("gpt-oss:20b"));
+    QCOMPARE(rig.a->lastPick().role, modelrouter::Role::Fast);
+    rig.a->ask("explain how nix flakes work in detail");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 2, 5000);
+    QCOMPARE(rig.modelOf(1), QString("big-27b:q4"));
+    QVERIFY(said.last().first().toString().contains("Answer from big-27b:q4"));
+  }
+
+  void fallsBackWhenTheMainModelIsMissing() {
+    Rig rig({"gpt-oss:20b", "qwen3:30b-a3b"});
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("explain how nix flakes work");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
+    QCOMPARE(rig.modelOf(0), QString("gpt-oss:20b"));
+    QVERIFY(rig.a->lastPick().fellBack);
+    QVERIFY(rig.a->lastPick().reason.contains("not installed"));
+  }
+
+  void usesAnyLocalModelAsALastResortButNeverInventsOne() {
+    Rig rig({"llama3:8b"});
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
+    QCOMPARE(rig.modelOf(0), QString("llama3:8b"));
+    // ...unless the user does not want that.
+    Rig strict({"llama3:8b"});
+    strict.a->settings()->set("llm.useAnyLocalModel", false);
+    QVERIFY(strict.a->pickModelFor("tell me a joke").model.isEmpty() ||
+            strict.a->pickModelFor("tell me a joke").model == "gpt-oss:20b");
+  }
+
+  void retriesOnAnotherLocalModelWhenOneFails() {
+    Rig rig;
+    rig.srv.chat = [](const QJsonObject &body) {
+      FakeServer::Reply r;
+      if (body.value("model").toString() == "big-27b:q4") {
+        r.status = 500;
+        r.body = "{\"error\":{\"message\":\"CUDA error: out of memory\"}}";
+      } else {
+        r.events = streamOf("Handled by " + body.value("model").toString() + ".");
+      }
+      return r;
+    };
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("explain how nix flakes work in detail");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 8000);
+    QCOMPARE(rig.srv.chatBodies.size(), 2);
+    QCOMPARE(rig.modelOf(0), QString("big-27b:q4"));
+    QCOMPARE(rig.modelOf(1), QString("gpt-oss:20b"));
+    QVERIFY(said.first().first().toString().contains("Handled by gpt-oss:20b"));
+  }
+
+  void neverFallsBackToAnythingNonLocal() {
+    Rig rig;
+    rig.srv.chat = [](const QJsonObject &) {
+      FakeServer::Reply r;
+      r.status = 500;
+      r.body = "{\"error\":{\"message\":\"broken\"}}";
+      return r;
+    };
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 10000);
+    // Every local model was tried once, then a plain apology -- no fourth try.
+    QVERIFY(rig.srv.chatBodies.size() <= 3);
+    QVERIFY(said.first().first().toString().contains("can't reach my brain"));
+  }
+
+  void modelSwitchingByVoice() {
+    Rig rig;
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    // "For this": the next request only, defaults untouched.
+    rig.a->ask("Nala, use the main model for this");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 3000);
+    QCOMPARE(rig.a->settings()->string("llm.mode"), QString("auto"));
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 2, 5000);
+    QCOMPARE(rig.modelOf(0), QString("big-27b:q4"));
+    rig.a->ask("tell me another joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 3, 5000);
+    QCOMPARE(rig.modelOf(1), QString("gpt-oss:20b")); // back to automatic
+
+    // "From now on": a standing preference.
+    rig.a->ask("from now on use the fast model");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 4, 3000);
+    QCOMPARE(rig.a->settings()->string("llm.mode"), QString("fast"));
+    rig.a->ask("explain how nix flakes work in detail");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 5, 5000);
+    QCOMPARE(rig.modelOf(2), QString("gpt-oss:20b"));
+    rig.a->ask("switch back to automatic model selection");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 6, 3000);
+    QCOMPARE(rig.a->settings()->string("llm.mode"), QString("auto"));
+    QCOMPARE(rig.srv.chatBodies.size(), 3); // phrases never reached a model
+  }
+
+  void routingCanBeTurnedOff() {
+    Rig rig;
+    rig.a->settings()->set("llm.autoRouting", false);
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
+    QCOMPARE(rig.modelOf(0), QString("big-27b:q4"));
+  }
+
+  void thinkingFollowsTheRequestInAutoMode() {
+    Rig rig;
+    rig.a->settings()->set("llm.thinking", "auto");
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
+    rig.a->ask("explain how nix flakes work in detail");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 2, 5000);
+    // Ollama: the fast model gets its floor, the main model on a hard question
+    // gets no "none" switch at all (thinking on = the server's default).
+    QCOMPARE(rig.srv.chatBodies.at(0).value("reasoning_effort").toString(), QString("low"));
+    QVERIFY(!rig.srv.chatBodies.at(1).contains("reasoning_effort"));
+  }
+
+  void speaksTheFirstSentenceWithoutWaitingForTheRest() {
+    Rig rig;
+    rig.a->setVoiceForTest(true);
+    rig.srv.chat = [](const QJsonObject &) {
+      FakeServer::Reply r;
+      r.events = streamOf("<think>plan the reply</think>Sure. I can open Firefox for you. "
+                          "Would you also like me to restore your previous tabs?", 5);
+      return r;
+    };
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 8000);
+    QTRY_COMPARE_WITH_TIMEOUT(rig.a->spokenForTest().size(), 2, 3000);
+    QCOMPARE(rig.a->spokenForTest().at(0), QString("Sure. I can open Firefox for you."));
+    QCOMPARE(rig.a->spokenForTest().at(1),
+             QString("Would you also like me to restore your previous tabs?"));
+    for (const QString &s : rig.a->spokenForTest())
+      QVERIFY(!s.contains("plan the reply")); // reasoning never reaches the voice
+    QVERIFY(!said.first().first().toString().contains("think"));
+    QCOMPARE(rig.a->history().last().toObject().value("content").toString(),
+             QString("Sure. I can open Firefox for you. Would you also like me to "
+                     "restore your previous tabs?"));
+  }
+
+  void keepsTheHistoryShort() {
+    Rig rig;
+    rig.a->settings()->set("llm.contextTurns", 2);
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    for (int i = 0; i < 8; ++i) {
+      rig.a->ask(QString("tell me joke number %1").arg(i));
+      QTRY_COMPARE_WITH_TIMEOUT(said.size(), i + 1, 5000);
+    }
+    QVERIFY2(rig.a->history().size() <= 2 * 2 + 4, "history was not compacted");
+    // The prompt of the last request carried no more than the recent turns.
+    const QJsonArray sent = rig.srv.chatBodies.last().value("messages").toArray();
+    QVERIFY(sent.size() <= 1 + 2 * 2 + 1 + 1);
+  }
+
+  void timesEachStage() {
+    Rig rig;
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 5000);
+    const QString report = rig.a->latencyReport();
+    QVERIFY2(report.contains("LLM first token"), qPrintable(report));
+    QVERIFY(report.contains("Total perceived latency"));
+  }
+
+  void aCommandNeverTouchesTheModel() {
+    Rig rig;
+    QSignalSpy said(rig.a.get(), &Assistant::said);
+    rig.a->ask("what time is it");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 3000);
+    QVERIFY(said.first().first().toString().startsWith("It's "));
+    QCOMPARE(rig.srv.chatBodies.size(), 0);
+    QVERIFY(rig.a->latencyReport().contains("Command execution"));
+  }
+
+  void statusShowsWhatIsAvailable() {
+    Rig rig({"gpt-oss:20b", "qwen3:30b-a3b"});
+    rig.srv.replies["/api/version"].body = "{\"version\":\"0.34.3\"}";
+    rig.srv.replies["/api/tags"].body =
+        "{\"models\":[{\"name\":\"gpt-oss:20b\",\"size\":13800000000},"
+        "{\"name\":\"qwen3:30b-a3b\",\"size\":18600000000}]}";
+    rig.srv.replies["/api/ps"].body =
+        "{\"models\":[{\"name\":\"gpt-oss:20b\",\"size\":14000000000,\"size_vram\":14000000000}]}";
+    QString text;
+    bool done = false;
+    rig.a->modelCommand("status", [&](QString t) { text = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+    QVERIFY2(text.contains("Ollama 0.34.3"), qPrintable(text));
+    QVERIFY(text.contains("Main model:"));
+    QVERIFY2(text.contains("available: NO"), qPrintable(text)); // the 27B is not installed
+    QVERIFY(text.contains("Fast model:"));
+    QVERIFY(text.contains("loaded: yes"));
+    QVERIFY(text.contains("Routing: automatic"));
+    QVERIFY(text.contains("Speech recognition (STT)"));
+    QVERIFY(text.contains("Voice (TTS)"));
+  }
+
+  void modelCommandsChangeSettings() {
+    Rig rig;
+    QString out;
+    bool done = false;
+    const auto run = [&](const QString &cmd) {
+      done = false;
+      rig.a->modelCommand(cmd, [&](QString t) { out = t; done = true; });
+      QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    };
+    run("mode fast");
+    QCOMPARE(rig.a->settings()->string("llm.mode"), QString("fast"));
+    run("mode nonsense");
+    QVERIFY(out.contains("usage"));
+    QCOMPARE(rig.a->settings()->string("llm.mode"), QString("fast"));
+    run("speed qwen3:30b-a3b");
+    QCOMPARE(rig.a->settings()->string("llm.speedModel"), QString("qwen3:30b-a3b"));
+    run("thinking on");
+    QCOMPARE(rig.a->settings()->string("llm.thinking"), QString("on"));
+    run("thinking sometimes");
+    QVERIFY(out.contains("usage"));
+    run("routing off");
+    QVERIFY(!rig.a->settings()->flag("llm.autoRouting"));
+    run("bogus");
+    QVERIFY(out.contains("usage"));
+  }
+
+  void startsWithNoServerAtAll() {
+    QTemporaryDir dir;
+    Assistant::Paths paths{dir.filePath("assistant.json"), dir.filePath("mem"), QString()};
+    Assistant a(paths, true);
+    a.settings()->set("llm.endpoint", "http://127.0.0.1:1/v1");
+    QSignalSpy said(&a, &Assistant::said);
+    a.ask("tell me a joke");
+    QTRY_COMPARE_WITH_TIMEOUT(said.size(), 1, 10000);
+    QVERIFY(said.first().first().toString().contains("can't reach my brain"));
+    QString out;
+    bool done = false;
+    a.modelCommand("status", [&](QString t) { out = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 10000);
+    QVERIFY(out.contains("not reachable"));
+    QVERIFY(out.contains("available: unknown"));
+  }
+
+  void clearsScreenHistoryOnly() {
+    Rig rig;
+    const QString text = rig.a->clearScreenMemory(false);
+    QVERIFY(text.contains("Forgot 0"));
+  }
+
+private:
+public slots:
+  void unusedToKeepMocHappy() {}
+
+private slots:
+  // --- screen history retention -------------------------------------------------
+  void retentionNamesMapToMinutes() {
+    QCOMPARE(ScreenMemory::retentionMinutes("1h"), 60);
+    QCOMPARE(ScreenMemory::retentionMinutes("1d"), 1440);
+    QCOMPARE(ScreenMemory::retentionMinutes("7d"), 7 * 1440);
+    QCOMPARE(ScreenMemory::retentionMinutes("30d"), 30 * 1440);
+    QCOMPARE(ScreenMemory::retentionMinutes("off"), 1);
+    QCOMPARE(ScreenMemory::retentionMinutes("manual"), 0);
+    QCOMPARE(ScreenMemory::retentionMinutes("custom"), 0);
+  }
+
+  void retentionCanBeFinerThanADay() {
+    QTemporaryDir dir;
+    MemoryStore store;
+    QVERIFY(store.open(dir.path()));
+    const QDateTime now = QDateTime::currentDateTime();
+    const auto shot = [&](int minutesAgo) {
+      const QString path = store.shotsDir() + QStringLiteral("/%1.jpg").arg(minutesAgo);
+      QFile f(path);
+      if (!f.open(QIODevice::WriteOnly))
+        return qint64(0);
+      f.write(QByteArray(1024, 'j'));
+      f.close();
+      MemoryRecord r;
+      r.started = r.lastSeen = now.addSecs(-60 * minutesAgo);
+      r.app = "a";
+      r.shotPath = path;
+      r.shotBytes = 1024;
+      return store.insert(r);
+    };
+    const qint64 old = shot(90), fresh = shot(10);
+    const auto sweep = store.enforce(7, 0, 0, now, 60); // "1h" beats the 7 days
+    QCOMPARE(sweep.screenshots, 1);
+    QVERIFY(store.get(old).shotPath.isEmpty());
+    QVERIFY(!store.get(fresh).shotPath.isEmpty());
+  }
+
+  void clearingScreenMemoryLeavesNotesAndPins() {
+    QTemporaryDir dir;
+    MemoryStore store;
+    QVERIFY(store.open(dir.path()));
+    const QDateTime now = QDateTime::currentDateTime();
+    const auto add = [&](const QString &source, bool pinned) {
+      MemoryRecord r;
+      r.started = r.lastSeen = now;
+      r.app = "a";
+      r.source = source;
+      r.pinned = pinned;
+      return store.insert(r);
+    };
+    add("screen", false);
+    add("screen", false);
+    const qint64 pinned = add("screen", true);
+    const qint64 note = add("note", false);
+    QCOMPARE(store.countSource("screen"), 3);
+    QCOMPARE(store.forgetSource("screen"), 2);
+    QVERIFY(store.get(pinned).id != 0);   // kept, and the caller can say so
+    QVERIFY(store.get(note).id != 0);     // notes are not screen history
+    QCOMPARE(store.countSource("screen", true), 1);
+    QCOMPARE(store.forgetSource("screen", true), 1);
+    QCOMPARE(store.countSource("screen"), 0);
+    QCOMPARE(store.count(), 1);
   }
 
   // --- catalogue and GPU -----------------------------------------------------

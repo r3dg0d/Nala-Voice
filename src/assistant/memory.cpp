@@ -451,13 +451,43 @@ int MemoryStore::dropScreenshotsBefore(const QDateTime &before) {
   return int(ids.size());
 }
 
+int MemoryStore::forgetSource(const QString &source, bool includePinned) {
+  if (!m_open)
+    return 0;
+  QSqlQuery q(QSqlDatabase::database(m_connection));
+  q.prepare(includePinned ? "SELECT id FROM memories WHERE source = ?"
+                          : "SELECT id FROM memories WHERE source = ? AND pinned = 0");
+  q.addBindValue(source);
+  QVector<qint64> ids;
+  if (q.exec())
+    while (q.next())
+      ids << q.value(0).toLongLong();
+  int gone = 0;
+  for (qint64 id : ids)
+    gone += forgetOne(id);
+  return gone;
+}
+
+int MemoryStore::countSource(const QString &source, bool pinnedOnly) const {
+  if (!m_open)
+    return 0;
+  QSqlQuery q(QSqlDatabase::database(m_connection));
+  q.prepare(pinnedOnly ? "SELECT COUNT(*) FROM memories WHERE source = ? AND pinned = 1"
+                       : "SELECT COUNT(*) FROM memories WHERE source = ?");
+  q.addBindValue(source);
+  return q.exec() && q.next() ? q.value(0).toInt() : 0;
+}
+
 MemoryStore::Sweep MemoryStore::enforce(int shotDays, int rowDays,
-                                        qint64 maxBytes, const QDateTime &now) {
+                                        qint64 maxBytes, const QDateTime &now,
+                                        int shotMinutes) {
   Sweep sweep;
   if (!m_open)
     return sweep;
   const qint64 before = storageBytes();
-  if (shotDays > 0)
+  if (shotMinutes > 0)
+    sweep.screenshots += dropScreenshotsBefore(now.addSecs(-60LL * shotMinutes));
+  else if (shotDays > 0)
     sweep.screenshots += dropScreenshotsBefore(now.addDays(-shotDays));
 
   QSqlDatabase db = QSqlDatabase::database(m_connection);

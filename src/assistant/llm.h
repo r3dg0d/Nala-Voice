@@ -70,7 +70,7 @@ public:
   void probe(std::function<void(QString error)> done = {});
   // Ask Ollama to release the model's memory. No-op elsewhere.
   void unload();
-  void unload(const QString &model);
+  void unload(const QString &model, std::function<void()> done = {});
 
   // Switch the model for the next request, keeping everything else. A model
   // that differs from the last one has its abilities looked up again.

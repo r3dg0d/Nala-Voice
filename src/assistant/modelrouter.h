@@ -24,6 +24,7 @@ struct Choice {
   Role role = Role::Main;
   Task task = Task::Conversation;
   QString reason; // one short line, for the log and `nala model status`
+  bool deep = false; // needs real reasoning: worth thinking mode on Main
 };
 
 struct Options {
@@ -42,6 +43,8 @@ struct Options {
 // debugging, code, analysis, planning, long input -- goes to Main; short
 // chatter and simple lookups go to Fast.
 Task classifyTask(const QString &text);
+// Reasoning, debugging, code or a long request.
+bool needsReasoning(const QString &text);
 Choice choose(const QString &text, const Options &options);
 
 // Roles to try, in order, when `role`'s model is missing. `custom` is the user's

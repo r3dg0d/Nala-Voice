@@ -158,9 +158,12 @@ void LlmClient::probe(std::function<void(QString)> done) {
 
 void LlmClient::unload() { unload(m_model); }
 
-void LlmClient::unload(const QString &model) {
-  if (m_server != Server::Ollama || model.isEmpty())
+void LlmClient::unload(const QString &model, std::function<void()> done) {
+  if (m_server != Server::Ollama || model.isEmpty()) {
+    if (done)
+      done();
     return;
+  }
   QUrl url = root();
   url.setPath(url.path() + "/api/generate");
   QNetworkRequest req(url);
@@ -168,7 +171,11 @@ void LlmClient::unload(const QString &model) {
   req.setTransferTimeout(10000);
   QNetworkReply *reply = m_network->post(
       req, QJsonDocument(QJsonObject{{"model", model}, {"keep_alive", 0}}).toJson());
-  connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+  connect(reply, &QNetworkReply::finished, this, [reply, done] {
+    reply->deleteLater();
+    if (done)
+      done();
+  });
 }
 
 void LlmClient::useModel(const QString &model) {

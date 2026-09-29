@@ -2,7 +2,11 @@
 #include "commandrouter.h"
 #include "desktop.h"
 #include "identity.h"
+#include "latency.h"
 #include "llm.h"
+#include "modelcatalog.h"
+#include "modelrouter.h"
+#include "sentencestream.h"
 #include "wakeword.h"
 #include "memory.h"
 #include "tools.h"
@@ -173,6 +177,40 @@ public:
   Q_INVOKABLE void answer(bool yes);
   Q_INVOKABLE void dismissBubble();
 
+  // --- the local models (assistant_models.cpp) --------------------------------
+  // Which model answers a request, and why. Uses the model list the server
+  // last gave (refreshModels); nothing is sent.
+  struct ModelPick {
+    QString model;                 // empty: nothing usable is known
+    modelrouter::Role role = modelrouter::Role::Main;
+    modelrouter::Task task = modelrouter::Task::Conversation;
+    bool fellBack = false;         // another role's model stood in
+    bool deep = false;             // the request needs reasoning
+    QString reason;
+  };
+  ModelPick pickModelFor(const QString &text) const;
+  // Ask the server what it has, what is loaded, and the GPU; then `then`.
+  void refreshModels(std::function<void()> then = {});
+  // `nala model …`: list, status, main|fast|speed <name>, mode <m>,
+  // thinking <t>, routing on|off. Replies once, when the answer is ready.
+  void modelCommand(const QString &args, std::function<void(QString)> reply);
+  void sttStatus(std::function<void(QString)> done);
+  void ttsStatus(std::function<void(QString)> done);
+  // Every model, five kinds of request, measured. Streams progress lines.
+  void benchmark(std::function<void(QString)> progress, std::function<void()> done);
+  // The last request's timings, or a note that there is none yet.
+  QString latencyReport() const;
+  // `nala memory clear screen`: forgets screen history; notes stay.
+  QString clearScreenMemory(bool includePinned);
+  ModelPick lastPick() const { return m_pick; }
+  QString conversationSummary() const { return m_summary; }
+  // Tests: pretend the server lists these, without asking it.
+  void setInstalledModels(const QStringList &names);
+  // Tests: act as if the voice were on, recording what would be said instead
+  // of synthesising it (no audio device is touched).
+  void setVoiceForTest(bool on) { m_voiceForTest = on; }
+  QStringList spokenForTest() const { return m_spokenForTest; }
+
   // Health of every backend, refreshed in the background. `done` gets a
   // human-readable report.
   Q_INVOKABLE void diagnose();
@@ -274,6 +312,23 @@ private:
   void runFast(const Route &route);
   void think(const QString &text);
   void onModelReply(const LlmReply &reply);
+  void onModelDelta(const QString &text);
+  void sendChat();
+  void dispatchTurn(const ModelPick &pick, int turn);
+  void prepareVram(ModelPick pick, std::function<void(ModelPick)> then);
+  bool tryFallbackModel(const QString &why);
+  QString thinkingFor(const ModelPick &pick) const;
+  modelrouter::Options routingOptions() const;
+  QString roleModelName(modelrouter::Role role) const;
+  bool applyModelPhrase(const QString &text);
+  QString installedSummary() const;
+  bool voiceOn() const;
+  void queueStreamedSentence(const QString &sentence);
+  void finishStreamedSpeech(const QString &fullText);
+  void compactHistory();
+  void summarise(const QJsonArray &dropped);
+  void finishLatency(bool spoken);
+  void checkUrl(const QUrl &url, std::function<void(bool, QString)> done);
   void runToolCalls();
   QJsonObject systemMessage() const;
   QSet<QString> categories() const;
@@ -293,6 +348,8 @@ private:
   QNetworkAccessManager m_network;
   LlmClient *m_llm = nullptr;
   LlmClient *m_memoryLlm = nullptr;
+  LlmClient *m_summaryLlm = nullptr;  // folds old turns into a summary
+  LlmClient *m_benchLlm = nullptr;    // `nala benchmark`, never the live one
   Microphone *m_mic = nullptr;
   Speaker *m_speaker = nullptr;
   WhisperServer *m_whisperServer = nullptr;
@@ -350,8 +407,44 @@ private:
   QByteArray m_lastPcm;       // kept only until it has been transcribed
   bool m_deaf = false;       // "stop listening" in continuous mode
 
-  // The conversation the model sees, trimmed to the last few turns.
+  // The conversation the model sees, trimmed to the last few turns; older
+  // turns live on as a short summary.
   QJsonArray m_history;
+  QString m_summary;
+  QJsonArray m_pendingSummary;
+  bool m_summarising = false;
+
+  // Which models exist, what is loaded, and how full the GPU is.
+  QVector<catalog::Installed> m_installed;
+  QVector<catalog::Loaded> m_loaded;
+  catalog::Gpu m_gpu;
+  QString m_modelsError;
+  QElapsedTimer m_modelsAge;
+  bool m_modelsKnown = false;
+  bool m_modelsRefreshing = false;
+  QVector<std::function<void()>> m_modelWaiters;
+  QString m_modeOnce; // "use the smart model for this": the next request only
+  QTimer m_modeOnceTimer;
+  ModelPick m_pick;
+  QStringList m_triedModels;
+  QStringList m_warnedModels;
+
+  // Streaming the answer into the voice.
+  SentenceStream m_sentences;
+  QString m_streamText;
+  bool m_streamSpeaking = false; // sentences of this turn have been queued
+  bool m_streamOpen = false;     // more may come; do not finish speaking yet
+
+  // Where the time went.
+  LatencyTrace m_latency;
+  LatencyTrace m_lastLatency;
+  QElapsedTimer m_llmClock;
+  QElapsedTimer m_ttsClock;
+  QElapsedTimer m_turnClock;
+  bool m_latencyOpen = false;
+  bool m_ttsFirstPending = false;
+  bool m_voiceForTest = false;
+  QStringList m_spokenForTest;
   // The turn in progress.
   int m_turn = 0;
   int m_steps = 0;

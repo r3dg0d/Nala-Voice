@@ -89,8 +89,14 @@ public:
   // Apply retention: images older than `shotDays`, rows older than
   // `rowDays` (0 = keep forever), then the oldest unpinned images until the
   // total is under `maxBytes`.
+  // `shotMinutes`, when positive, replaces `shotDays` (retention finer than a
+  // day: "1h", or "off" which keeps a picture only for a moment).
   Sweep enforce(int shotDays, int rowDays, qint64 maxBytes,
-                const QDateTime &now);
+                const QDateTime &now, int shotMinutes = 0);
+  // Forget every memory from one source ("screen", "agent", "note"). Pinned
+  // ones are kept unless `includePinned`. Returns how many went.
+  int forgetSource(const QString &source, bool includePinned = false);
+  int countSource(const QString &source, bool pinnedOnly = false) const;
 
   qint64 storageBytes() const;
   int count() const;

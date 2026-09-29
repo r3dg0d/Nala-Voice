@@ -28,6 +28,7 @@ qt_add_library(nala_assistant STATIC
   src/assistant/assistant.cpp src/assistant/assistant.h
   src/assistant/assistant_voice.cpp
   src/assistant/assistant_tools.cpp
+  src/assistant/assistant_models.cpp
   src/assistant/systemtools.cpp src/assistant/systemtools.h
   src/assistant/identity.cpp src/assistant/identity.h
   src/assistant/audio.cpp src/assistant/audio.h

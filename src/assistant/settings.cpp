@@ -72,8 +72,23 @@ const QVector<Spec> &specs() {
       {"llm.fallback.speed", Kind::List, QStringList()},
       // Thinking models reason before answering; for a voice that costs
       // seconds. Off by default.
-      {"llm.thinking", Kind::Choice, QStringLiteral("off"), 0, 0,
-       {"off", "on", "server"}},
+      // auto: on for the main model on requests that need reasoning, off
+      // otherwise (a spoken reply should not wait on hidden thinking).
+      {"llm.thinking", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"off", "on", "auto", "server"}},
+      // ollama / llamacpp skip the server probe; auto asks it who it is.
+      {"llm.provider", Kind::Choice, QStringLiteral("auto"), 0, 0,
+       {"auto", "ollama", "llamacpp"}},
+      // Stream the answer and start speaking at the first full sentence.
+      {"llm.streaming", Kind::Bool, true},
+      // Unload other models first when the chosen one would not fit the GPU,
+      // and prefer a smaller role over spilling a big model onto system RAM.
+      {"llm.manageVram", Kind::Bool, true},
+      // If none of the three configured models is installed, use the best
+      // other local model rather than refusing. Never a cloud model.
+      {"llm.useAnyLocalModel", Kind::Bool, true},
+      // Screen memory can describe pictures with a different (vision) model.
+      {"llm.visionModel", Kind::String, QString()},
       {"llm.unloadIdleMin", Kind::Int, 0, 0, 1440},
       {"llm.apiKey", Kind::String, QString()},
       {"llm.temperature", Kind::Real, 0.6, 0.0, 2.0},
@@ -156,6 +171,11 @@ const QVector<Spec> &specs() {
       {"memory.dedupe", Kind::Bool, true},
       {"memory.dedupeDistance", Kind::Int, 6, 0, 32},
       {"memory.screenshotDays", Kind::Int, 7, 0, 3650},
+      // How long pictures are kept: off (only long enough to be described),
+      // 1h, 1d, 7d, 30d, manual (until you clear them; the storage cap still
+      // applies) or custom (memory.screenshotDays).
+      {"memory.screenshotRetention", Kind::Choice, QStringLiteral("custom"), 0, 0,
+       {"custom", "off", "1h", "1d", "7d", "30d", "manual"}},
       {"memory.semanticDays", Kind::Int, 0, 0, 3650},
       {"memory.maxStorageMB", Kind::Int, 5120, 50, 1000000},
       {"memory.jpegQuality", Kind::Int, 70, 30, 95},

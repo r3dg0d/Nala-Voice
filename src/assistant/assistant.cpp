@@ -1,5 +1,6 @@
 #include "assistant.h"
 #include "audio.h"
+#include "contextbudget.h"
 #include "eventlog.h"
 #include "screenmemory.h"
 #include "settings.h"
@@ -75,6 +76,8 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
 
   m_llm = new LlmClient(&m_network, this);
   m_memoryLlm = new LlmClient(&m_network, this);
+  m_summaryLlm = new LlmClient(&m_network, this);
+  m_benchLlm = new LlmClient(&m_network, this);
   m_memory = new ScreenMemory(m_settings, m_store.get(), m_log, m_memoryLlm, this);
   if (testing)
     m_memory->setOffline(true);
@@ -181,13 +184,51 @@ Assistant::Assistant(const Paths &paths, bool testing, QObject *parent)
   });
 
   connect(m_llm, &LlmClient::replied, this, &Assistant::onModelReply);
+  connect(m_llm, &LlmClient::delta, this, &Assistant::onModelDelta);
+  connect(m_llm, &LlmClient::firstToken, this, [this](qint64 ms) {
+    if (!m_latency.has(LatencyTrace::LlmFirstToken))
+      m_latency.set(LatencyTrace::LlmFirstToken, ms);
+  });
   connect(m_llm, &LlmClient::failed, this, [this](const QString &why) {
+    // A model that would not run (out of memory, a broken file) is not the end
+    // while another local one is installed -- as long as nothing has been said.
+    if (m_thinking && !m_streamSpeaking && tryFallbackModel(why))
+      return;
     m_thinking = false;
     m_pendingCalls.clear();
+    m_streamOpen = false;
+    m_streamSpeaking = false;
+    m_sentences.reset();
     m_log->record("error", "llm", {{"reason", why}});
     say(QStringLiteral("I can't reach my brain right now (%1).").arg(why));
     m_errorTimer.start();
     settle();
+  });
+  connect(m_summaryLlm, &LlmClient::replied, this, [this](const LlmReply &reply) {
+    m_summarising = false;
+    if (!reply.content.trimmed().isEmpty())
+      m_summary = ctx::capSummary(reply.content);
+    m_log->record("llm", "summary", {{"chars", int(m_summary.size())}});
+    if (!m_pendingSummary.isEmpty()) {
+      const QJsonArray more = m_pendingSummary;
+      m_pendingSummary = QJsonArray();
+      summarise(more);
+    }
+  });
+  connect(m_summaryLlm, &LlmClient::failed, this, [this](const QString &why) {
+    // Housekeeping only: the conversation goes on with what it had.
+    m_summarising = false;
+    m_pendingSummary = QJsonArray();
+    m_log->record("llm", "summary-failed", {{"reason", why}});
+  });
+  m_modeOnceTimer.setSingleShot(true);
+  connect(&m_modeOnceTimer, &QTimer::timeout, this, [this] { m_modeOnce.clear(); });
+  connect(m_tts, &TextToSpeech::audio, this, [this](const QByteArray &) {
+    if (!m_ttsFirstPending)
+      return;
+    m_ttsFirstPending = false;
+    m_latency.set(LatencyTrace::TtsFirstAudio, m_ttsClock.elapsed());
+    finishLatency(true);
   });
 
   m_bubbleTimer.setSingleShot(true);
@@ -306,8 +347,14 @@ void Assistant::applySettings(const QString &key) {
   llm.timeoutSec = m_settings->integer("llm.timeoutSec");
   llm.preferred = m_settings->list("llm.preferred");
   llm.thinking = m_settings->string("llm.thinking");
+  llm.provider = m_settings->string("llm.provider");
   m_llm->configure(llm);
-  m_memoryLlm->configure(llm);
+  m_summaryLlm->configure(llm);
+  m_benchLlm->configure(llm);
+  LlmClient::Config vision = llm;
+  if (!m_settings->string("llm.visionModel").isEmpty())
+    vision.model = m_settings->string("llm.visionModel");
+  m_memoryLlm->configure(vision);
 
   m_whisperServer->setUrl(QUrl(m_settings->string("stt.serverUrl")));
   m_whisperCli->configure(m_settings->string("stt.binary"),
@@ -532,6 +579,10 @@ void Assistant::onUtterance(const QByteArray &pcm16k) {
 void Assistant::onTranscript(const QString &text, qint64 ms) {
   m_transcribing = false;
   m_lastPcm.clear();
+  m_latency.reset();
+  m_latency.set(LatencyTrace::Stt, ms);
+  // The end-of-speech window she waited out before transcribing.
+  m_latency.set(LatencyTrace::Vad, m_settings->integer("stt.silenceMs"));
   m_log->record("stt", "transcribed",
                 {{"ms", ms}, {"chars", int(text.size())}});
   m_log->trace("stt", "transcript", {{"text", text}});
@@ -546,9 +597,17 @@ void Assistant::ask(const QString &text) { handle(text, false); }
 void Assistant::handle(const QString &text, bool spoken) {
   const bool fromWake = spoken && m_fromWake;
   m_fromWake = false;
+  if (!spoken)
+    m_latency.reset();
+  m_latencyOpen = true;
+  m_ttsFirstPending = false;
+  QElapsedTimer routeClock;
+  routeClock.start();
   const Route route = fromWake
                           ? m_router.routeAfterWake(text, m_identity.addressForms())
                           : m_router.route(text, m_identity.addressForms());
+  m_latency.set(LatencyTrace::Route, routeClock.nsecsElapsed() / 1000000);
+  m_turnClock.start();
   if (route.text.isEmpty() && !route.addressed)
     return; // silence, or whisper's "[BLANK_AUDIO]"
 
@@ -613,6 +672,9 @@ void Assistant::handle(const QString &text, bool spoken) {
     runFast(route);
     return;
   }
+  // "Use the fast model", "switch back to automatic model selection".
+  if (applyModelPhrase(route.text))
+    return;
   think(route.text);
 }
 
@@ -865,39 +927,12 @@ QJsonObject Assistant::systemMessage() const {
                                               m_settings->string("llm.systemPrompt"))}};
 }
 
-void Assistant::think(const QString &text) {
-  if (!m_settings->flag("llm.enabled")) {
-    say(QStringLiteral("I only know simple commands right now; my language "
-                       "model is switched off."));
-    return;
-  }
-  ++m_turn;
-  m_steps = 0;
-  m_pendingCalls.clear();
-  m_turnText = text;
-  m_turnTainted = false;
-  m_turnMessages = QJsonArray{systemMessage()};
-  // The last few exchanges, so "open it" knows what "it" was.
-  const int keep = m_settings->integer("llm.contextTurns") * 2;
-  for (qsizetype i = std::max<qsizetype>(0, m_history.size() - keep);
-       i < m_history.size(); ++i)
-    m_turnMessages.append(m_history.at(i));
-  m_turnMessages.append(QJsonObject{{"role", "user"}, {"content", text}});
-
-  m_thinking = true;
-  settle();
-  m_log->record("llm", "request",
-                {{"model", m_llm->model()}, {"messages", int(m_turnMessages.size())}});
-  m_log->trace("llm", "prompt", {{"text", text}});
-  m_llm->chat(m_turnMessages, m_settings->flag("llm.toolCalling")
-                                  ? m_tools.schema(categories())
-                                  : QJsonArray());
-}
-
 void Assistant::injectModelReply(const LlmReply &reply) { onModelReply(reply); }
 
 void Assistant::onModelReply(const LlmReply &reply) {
   m_thinking = false;
+  if (m_llmClock.isValid() && !m_latency.has(LatencyTrace::LlmDone))
+    m_latency.set(LatencyTrace::LlmDone, m_llmClock.elapsed());
   if (m_settings->integer("llm.unloadIdleMin") > 0)
     m_unloadTimer.start();
   m_turnMessages.append(reply.message);
@@ -911,6 +946,13 @@ void Assistant::onModelReply(const LlmReply &reply) {
     ++m_steps;
     for (const ToolCall &call : reply.toolCalls)
       m_pendingCalls.enqueue(call);
+    // Anything she said before reaching for a tool has been handed to the voice.
+    if (m_streamSpeaking) {
+      const QString rest = m_sentences.flush();
+      if (!rest.isEmpty())
+        queueStreamedSentence(rest);
+    }
+    m_streamText.clear();
     runToolCalls();
     return;
   }
@@ -927,16 +969,18 @@ void Assistant::onModelReply(const LlmReply &reply) {
   m_history.append(QJsonObject{{"role", "assistant"}, {"content", text}});
   while (m_history.size() > 100)
     m_history.removeFirst();
-  say(text);
+  compactHistory();
+  if (m_streamSpeaking)
+    finishStreamedSpeech(text); // the voice already has most of it
+  else
+    say(text);
 }
 
 void Assistant::runToolCalls() {
   if (m_pendingCalls.isEmpty()) {
     m_thinking = true;
     settle();
-    m_llm->chat(m_turnMessages, m_settings->flag("llm.toolCalling")
-                                    ? m_tools.schema(categories())
-                                    : QJsonArray());
+    sendChat();
     return;
   }
   const ToolCall call = m_pendingCalls.dequeue();
@@ -1070,6 +1114,10 @@ void Assistant::answer(bool yes) {
 
 void Assistant::stop() {
   ++m_turn;
+  m_streamOpen = false;
+  m_streamSpeaking = false;
+  m_sentences.reset();
+  m_streamText.clear();
   m_llm->cancel();
   m_pendingCalls.clear();
   m_thinking = false;
@@ -1097,6 +1145,9 @@ void Assistant::stop() {
 // --- speaking ------------------------------------------------------------------
 
 void Assistant::say(const QString &text, bool speak) {
+  // A fresh utterance: whatever was being streamed is over.
+  m_streamOpen = false;
+  m_streamSpeaking = false;
   m_bubble = text;
   emit bubbleChanged();
   emit said(text);
@@ -1116,6 +1167,15 @@ void Assistant::say(const QString &text, bool speak) {
   m_followAfter = speak;
   if (!voice) {
     m_speaking = false;
+    // Nothing will be said aloud: the reply is done the moment it is shown.
+    if (m_latencyOpen && m_turnClock.isValid()) {
+      // A command's time is all there is to report; a model's answer already
+      // has its own first-token time, which is what the reader waited for.
+      if (!m_latency.has(LatencyTrace::LlmFirstToken) && !m_latency.has(LatencyTrace::LlmDone))
+        m_latency.set(LatencyTrace::Action,
+                      std::max<qint64>(0, m_turnClock.elapsed() - m_latency.ms(LatencyTrace::Route)));
+      finishLatency(false);
+    }
     if (m_followAfter)
       finishSpeaking();
     settle();
@@ -1133,8 +1193,20 @@ void Assistant::say(const QString &text, bool speak) {
 
 void Assistant::speakNext() {
   if (m_speech.isEmpty()) {
+    // More is still being written: wait for it rather than end the reply.
+    if (m_streamOpen)
+      return;
     finishSpeaking();
     return;
+  }
+  if (m_voiceForTest) { // a test: note the sentence, touch no audio device
+    m_spokenForTest << m_speech.takeFirst();
+    QTimer::singleShot(0, this, &Assistant::speakNext);
+    return;
+  }
+  if (!m_latency.has(LatencyTrace::TtsFirstAudio) && !m_ttsFirstPending) {
+    m_ttsFirstPending = true;
+    m_ttsClock.start();
   }
   m_synthesizing = true;
   m_tts->synthesize(m_speech.takeFirst());

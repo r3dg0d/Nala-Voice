@@ -88,6 +88,11 @@ Role roleFor(const QString &name, Role fallback) {
 
 } // namespace
 
+bool needsReasoning(const QString &text) {
+  const QString lower = text.toLower().trimmed();
+  return heavy(lower) || (codey(lower) && words(lower) > 8) || words(lower) > 30;
+}
+
 Task classifyTask(const QString &text) {
   const QString lower = text.toLower().trimmed();
   if (summary(lower)) return Task::Summary;
@@ -98,6 +103,7 @@ Task classifyTask(const QString &text) {
 
 Choice choose(const QString &text, const Options &options) {
   Choice c;
+  c.deep = needsReasoning(text);
   Role forced;
   if (options.mode != QLatin1String("auto") && parseRole(options.mode, &forced)) {
     c.role = forced;
