@@ -5,6 +5,11 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.8+)
 
+Unreleased: `nala tts status` syncs the sticky voice-broken flag with live
+Qwen/Fish probes (same `/v1/models` and `/v1/health` paths as doctor) — clear
+when an applicable engine answers; mark broken when none do. Engine `none`
+stays intentional silence.
+
 1.3.8: `nala stt status` in auto mode syncs the sticky auto→cli flag with a
 live probe (recover when whisper-server answers; report cli use when it does
 not). Doctor already cleared sticky on a successful probe; status matches that

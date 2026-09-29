@@ -18,6 +18,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
+#include <array>
 #include <cmath>
 #include <memory>
 
@@ -590,11 +591,15 @@ void Assistant::sttStatus(std::function<void(QString)> done) {
 
 void Assistant::ttsStatus(std::function<void(QString)> done) {
   const QString engine = m_settings->string("tts.engine");
-  const QUrl qwen(m_settings->string("tts.qwen.endpoint"));
-  const QUrl fish(m_settings->string("tts.endpoint"));
+  const QUrl qwenBase(m_settings->string("tts.qwen.endpoint"));
+  const QUrl fishBase(m_settings->string("tts.endpoint"));
+  // Same paths as doctor so status and doctor agree on whether a voice is up.
+  const QUrl qwenProbe = withApiPath(qwenBase, QStringLiteral("/v1/models"));
+  const QUrl fishProbe = withApiPath(fishBase, QStringLiteral("/v1/health"));
   auto lines = std::make_shared<QStringList>(QStringList{QString(), QString()});
+  auto ups = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
   auto pending = std::make_shared<int>(2);
-  const auto finish = [this, done, lines, pending, engine] {
+  const auto finish = [this, done, lines, ups, pending, engine] {
     if (--*pending > 0)
       return;
     QString text = QStringLiteral("Voice (TTS), engine: %1%2\n")
@@ -603,26 +608,46 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
     const QStringList down = m_tts->downEngines();
     if (!down.isEmpty())
       text += QStringLiteral("\n  Skipping for now after a failure: %1").arg(down.join(", "));
-    maybeRecoverVoice();
-    if (m_voiceBroken)
-      text += QStringLiteral(
-          "\n  Voice is off after an error; will retry after the TTS cooldown "
-          "(or change a tts setting to retry now).");
+    // Sync m_voiceBroken with the live probes (same as doctor): an applicable
+    // engine answering clears a sticky failure so the next reply speaks again;
+    // none answering marks voice broken. Engine "none" is intentional silence.
+    if (engine != QLatin1String("none")) {
+      const bool qwenOk =
+          (engine == QLatin1String("auto") || engine == QLatin1String("qwen")) &&
+          (*ups)[0] == 1;
+      const bool fishOk =
+          (engine == QLatin1String("auto") || engine == QLatin1String("fish")) &&
+          (*ups)[1] == 1;
+      const bool wasBroken = m_voiceBroken;
+      if (qwenOk || fishOk) {
+        m_voiceBroken = false;
+        if (wasBroken)
+          text += QStringLiteral(
+              "\n  Voice server is back; will speak again on the next reply.");
+      } else {
+        markVoiceBroken();
+        text += QStringLiteral(
+            "\n  Voice is off after an error; will retry after the TTS cooldown "
+            "(or change a tts setting to retry now).");
+      }
+    }
     done(text);
   };
-  checkUrl(qwen, [lines, finish, qwen, engine](bool up, QString error) {
+  checkUrl(qwenProbe, [lines, ups, finish, qwenBase, engine](bool up, QString error) {
+    (*ups)[0] = up ? 1 : 0;
     (*lines)[0] = QStringLiteral("  Qwen3-TTS %1 at %2: %3")
                   .arg(engine == "fish" ? QStringLiteral("(unused)") : QStringLiteral("(primary)"),
-                       qwen.toString(),
+                       qwenBase.toString(),
                        up ? QStringLiteral("running") : QStringLiteral("not responding (%1)").arg(error));
     finish();
   });
-  checkUrl(fish, [lines, finish, fish, engine](bool up, QString error) {
+  checkUrl(fishProbe, [lines, ups, finish, fishBase, engine](bool up, QString error) {
+    (*ups)[1] = up ? 1 : 0;
     (*lines)[1] = QStringLiteral("  Fish Speech %1 at %2: %3")
                   .arg(engine == "auto" ? QStringLiteral("(fallback)")
                                         : engine == "fish" ? QStringLiteral("(primary)")
                                                            : QStringLiteral("(unused)"),
-                       fish.toString(),
+                       fishBase.toString(),
                        up ? QStringLiteral("running") : QStringLiteral("not responding (%1)").arg(error));
     finish();
   });

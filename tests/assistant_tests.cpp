@@ -1667,6 +1667,65 @@ private slots:
     QCOMPARE(cli.calls, 2);
   }
 
+  // tts status syncs m_voiceBroken with live probes (same as doctor), so a
+  // returning voice server is found without waiting out the cooldown or
+  // changing a tts setting.
+  void ttsStatusRecoversStickyWhenServerResponds() {
+    TinyHttp http;
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("tts.engine", "auto");
+    assistant.settings()->set("tts.qwen.endpoint", http.url().toString());
+    assistant.settings()->set("tts.endpoint", http.url().toString());
+    assistant.markVoiceBrokenForTest();
+    QVERIFY(assistant.voiceBrokenForTest());
+
+    QString report;
+    bool done = false;
+    assistant.ttsStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("Voice server is back"), qPrintable(report));
+    QVERIFY2(!report.contains("Voice is off after an error"), qPrintable(report));
+    QVERIFY(!assistant.voiceBrokenForTest());
+  }
+
+  void ttsStatusKeepsStickyWhenServersStillDown() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("tts.engine", "auto");
+    assistant.settings()->set("tts.qwen.endpoint", "http://127.0.0.1:1");
+    assistant.settings()->set("tts.endpoint", "http://127.0.0.1:1");
+    assistant.markVoiceBrokenForTest();
+    QVERIFY(assistant.voiceBrokenForTest());
+
+    QString report;
+    bool done = false;
+    assistant.ttsStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("Voice is off after an error"), qPrintable(report));
+    QVERIFY2(!report.contains("Voice server is back"), qPrintable(report));
+    QVERIFY(assistant.voiceBrokenForTest());
+  }
+
+  void ttsStatusMarksBrokenWhenNoServer() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("tts.engine", "auto");
+    assistant.settings()->set("tts.qwen.endpoint", "http://127.0.0.1:1");
+    assistant.settings()->set("tts.endpoint", "http://127.0.0.1:1");
+    QVERIFY(!assistant.voiceBrokenForTest());
+
+    QString report;
+    bool done = false;
+    assistant.ttsStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("Voice is off after an error"), qPrintable(report));
+    QVERIFY(assistant.voiceBrokenForTest());
+  }
+
   void toolSchemaIsWellFormed() {
     QTemporaryDir dir;
     Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);

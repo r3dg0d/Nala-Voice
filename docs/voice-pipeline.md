@@ -109,7 +109,7 @@ that failed is skipped for 30 seconds so later sentences do not each pay for the
 timeout. If neither answers, the reply is shown in the bubble and the voice stays
 off until that cooldown ends (then she tries again) or you change a `tts.*`
 setting. Trailing slashes on `tts.qwen.endpoint` / `tts.endpoint` are normalised
-before `/v1/...` routes are joined. `nala tts status` shows both.
+before `/v1/...` routes are joined. `nala tts status` shows both and syncs the sticky voice-broken flag with those probes (same recovery as doctor).
 
 Command execution never waits on the voice.
 

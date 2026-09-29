@@ -6,6 +6,21 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+### Fixed
+
+- **TTS status sticky sync**: `nala tts status` aligns the sticky voice-broken
+  flag with live Qwen3-TTS / Fish Speech probes (same paths and recovery
+  contract as doctor) — clears the failure and reports `Voice server is back`
+  when an applicable engine answers, and marks voice broken with the cooldown
+  note when none do. Engine `none` stays intentional silence. Status probes
+  `/v1/models` and `/v1/health` like doctor so both agree on "up".
+
+### Tests
+
+- **TTS status sticky**: offline coverage for clearing voice-broken when a
+  server responds, keeping it when both stay down, and marking it when status
+  finds no voice server.
+
 ## 1.3.8 — 2026-09-29
 
 STT status syncs the auto→cli sticky flag with a live whisper-server probe.
