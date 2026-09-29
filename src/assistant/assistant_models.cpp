@@ -562,9 +562,24 @@ void Assistant::sttStatus(std::function<void(QString)> done) {
                 .arg(url.toString(),
                      up ? QStringLiteral("running")
                         : QStringLiteral("not responding (%1)").arg(error));
-    if (!up && mode != "server")
-      text += QStringLiteral("  Falling back to %1 (loads the model for every utterance, slower).\n")
-                  .arg(m_settings->string("stt.binary"));
+    // Auto mode keeps a sticky "server dead" flag after a failed transcription
+    // so later utterances skip a flapping server. Status (and doctor) probe
+    // that same flag: down → mark dead and say we are on the cli; up after a
+    // sticky failure → clear it so the next utterance retries the server.
+    // Cli/server modes never fall back, so do not claim a fallback there.
+    if (mode == QLatin1String("auto")) {
+      const bool wasDead = m_serverDead;
+      m_serverDead = !up;
+      if (!up) {
+        text += QStringLiteral(
+                    "  Using %1 for now (loads the model for every utterance, "
+                    "slower). Change an stt setting to force a retry.\n")
+                    .arg(m_settings->string("stt.binary"));
+      } else if (wasDead) {
+        text += QStringLiteral(
+            "  whisper-server is back; will use it for the next utterance.\n");
+      }
+    }
     const QString model = m_settings->string("stt.model");
     text += QStringLiteral("  Model: %1\n").arg(model.isEmpty() ? WhisperCli::defaultModel() : model);
     text += QStringLiteral("  Activation: %1, language: %2\n")

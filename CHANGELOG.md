@@ -6,6 +6,21 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+### Fixed
+
+- **STT status sticky sync**: `nala stt status` (auto mode) aligns the
+  auto→cli sticky flag with a live whisper-server probe — marks dead and
+  reports `Using whisper-cli for now` when the server is down, and clears the
+  sticky failure with `whisper-server is back` when it responds again (same
+  recovery doctor already performed). Cli/server modes no longer claim a
+  fallback.
+
+### Tests
+
+- **STT status sticky**: offline coverage for auto-only fallback wording,
+  sticky kept while the server stays down, and sticky cleared when status
+  finds the server up again so the next utterance retries whisper-server.
+
 ## 1.3.7 — 2026-09-29
 
 Router month units on pause/forget, and STT auto→cli fallback tests.

@@ -379,7 +379,7 @@ void Assistant::applySettings(const QString &key) {
       m_identity.wakePhrases() != oldPhrases)
     reloadWake();
   if (key.startsWith("stt."))
-    m_serverDead = false; // worth another try with the new settings
+    m_serverDead = false; // worth another try (also cleared by stt status/doctor)
   m_fish->configure(QUrl(m_settings->string("tts.endpoint")),
                     m_settings->string("tts.referenceId"),
                     m_settings->flag("tts.streaming"),
@@ -524,7 +524,8 @@ void Assistant::wireSpeechBackend(SpeechToText *stt) {
   connect(stt, &SpeechToText::transcribed, this, &Assistant::onTranscript);
   connect(stt, &SpeechToText::failed, this, [this, stt](const QString &why) {
     // In auto mode a server that is not there is not an error: fall back
-    // to the one-shot binary for this and later utterances.
+    // to the one-shot binary for this and later utterances. Sticky until an
+    // stt.* setting changes, or stt status / doctor finds the server up.
     if (stt == sttServer() &&
         m_settings->string("stt.mode") == "auto" && !m_lastPcm.isEmpty()) {
       m_serverDead = true;
@@ -1557,6 +1558,8 @@ void Assistant::diagnose(std::function<void(QString)> done) {
   };
 
   const QString sttUrl = m_settings->string("stt.serverUrl");
+  // Sync the auto→cli sticky flag with the live probe (same as sttStatus):
+  // server up clears a prior failure so the next utterance retries it.
   probe(QUrl(sttUrl), [this, add, finish, sttUrl](bool up, QString) {
     m_serverDead = !up;
     const QString cli =

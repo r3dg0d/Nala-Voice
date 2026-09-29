@@ -23,6 +23,8 @@
 #include <QRandomGenerator>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTest>
 #include <cmath>
 #include <memory>
@@ -143,6 +145,33 @@ public:
   QString lastLanguage;
   int calls = 0;
   int cancels = 0;
+};
+
+
+// Minimal HTTP 200 responder for stt status / doctor probes (no body parsing).
+class TinyHttp : public QObject {
+public:
+  QTcpServer server;
+  TinyHttp() {
+    server.listen(QHostAddress::LocalHost);
+    connect(&server, &QTcpServer::newConnection, this, [this] {
+      while (QTcpSocket *sock = server.nextPendingConnection()) {
+        connect(sock, &QTcpSocket::readyRead, sock, [sock] {
+          QByteArray buf = sock->property("buf").toByteArray() + sock->readAll();
+          sock->setProperty("buf", buf);
+          if (!buf.contains("\r\n\r\n") || sock->property("replied").toBool())
+            return;
+          sock->setProperty("replied", true);
+          sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
+                      "Content-Length: 2\r\n\r\nok");
+          sock->disconnectFromHost();
+        });
+      }
+    });
+  }
+  QUrl url() const {
+    return QUrl(QStringLiteral("http://127.0.0.1:%1/").arg(server.serverPort()));
+  }
 };
 
 QByteArray speech(int ms) {
@@ -1500,7 +1529,8 @@ private slots:
     for (const QList<QVariant> &row : said)
       QVERIFY(!row.at(0).toString().contains("couldn't make that out"));
 
-    // Sticky: later utterances skip the dead server.
+    // Sticky: later utterances skip the dead server (until an stt.* setting
+    // change or a successful stt status / doctor probe).
     cli.next = "Stop.";
     assistant.hearUtterance(speech(800));
     QCOMPARE(server.calls, 1);
@@ -1546,6 +1576,95 @@ private slots:
     assistant.hearUtterance(speech(800));
     QCOMPARE(server.calls, 0);
     QCOMPARE(cli.calls, 1);
+  }
+
+
+  // stt status syncs the auto→cli sticky flag with a live probe, and never
+  // claims a "fallback" when the mode is already cli (or server).
+  void sttStatusReportsFallbackOnlyInAutoMode() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.serverUrl", "http://127.0.0.1:1");
+    assistant.settings()->set("stt.binary", "whisper-cli");
+    assistant.settings()->set("stt.mode", "cli");
+    QString cliReport;
+    bool cliDone = false;
+    assistant.sttStatus([&](QString t) { cliReport = t; cliDone = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(cliDone, 5000);
+    QVERIFY2(!cliReport.contains("Using "), qPrintable(cliReport));
+    QVERIFY2(!cliReport.contains("Falling back"), qPrintable(cliReport));
+    QVERIFY(cliReport.contains("mode: cli"));
+
+    assistant.settings()->set("stt.mode", "auto");
+    QString autoReport;
+    bool autoDone = false;
+    assistant.sttStatus([&](QString t) { autoReport = t; autoDone = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(autoDone, 5000);
+    QVERIFY2(autoReport.contains("Using whisper-cli for now"), qPrintable(autoReport));
+    QVERIFY(assistant.serverDeadForTest());
+  }
+
+  void sttStatusRecoversStickyWhenServerResponds() {
+    TinyHttp http;
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.mode", "auto");
+    assistant.settings()->set("stt.activation", "push");
+    assistant.settings()->set("stt.serverUrl", http.url().toString());
+    ScriptedStt server, cli;
+    server.failReason = "connection refused";
+    cli.next = "Stop.";
+    assistant.setSpeechBackendsForTest(&server, &cli);
+
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 1);
+    QCOMPARE(cli.calls, 1);
+    QVERIFY(assistant.serverDeadForTest());
+
+    QString report;
+    bool done = false;
+    assistant.sttStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("whisper-server is back"), qPrintable(report));
+    QVERIFY(!assistant.serverDeadForTest());
+
+    // Next utterance retries the server (no longer sticky).
+    server.failReason.clear();
+    server.next = "Stop.";
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 2);
+    QCOMPARE(cli.calls, 1);
+  }
+
+  void sttStatusKeepsStickyWhenServerStillDown() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("stt.mode", "auto");
+    assistant.settings()->set("stt.activation", "push");
+    assistant.settings()->set("stt.serverUrl", "http://127.0.0.1:1");
+    ScriptedStt server, cli;
+    server.failReason = "connection refused";
+    cli.next = "Stop.";
+    assistant.setSpeechBackendsForTest(&server, &cli);
+
+    assistant.hearUtterance(speech(800));
+    QVERIFY(assistant.serverDeadForTest());
+    QCOMPARE(cli.calls, 1);
+
+    QString report;
+    bool done = false;
+    assistant.sttStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("Using whisper-cli for now"), qPrintable(report));
+    QVERIFY(assistant.serverDeadForTest());
+
+    cli.next = "Stop.";
+    assistant.hearUtterance(speech(800));
+    QCOMPARE(server.calls, 1); // still sticky: skip dead server
+    QCOMPARE(cli.calls, 2);
   }
 
   void toolSchemaIsWellFormed() {

@@ -5,10 +5,16 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.7+)
 
+Unreleased: `nala stt status` in auto mode syncs the sticky auto→cli flag
+with a live probe (recover when whisper-server answers; report cli use when
+it does not). Doctor already cleared sticky on a successful probe; status
+matches that contract. Cli/server modes no longer claim a fallback.
+
 1.3.7: command-router pause/forget durations accept `month`/`months`
 (same as delete-older), so spoken month spans stay on the fast path; offline
 tests cover STT `auto`→whisper-cli fallback when the server is down
-(`m_serverDead` sticky until an `stt.*` setting changes).
+(`m_serverDead` sticky until an `stt.*` setting change or a successful
+`stt status` / doctor probe).
 
 1.3.6: `status()` prefers paused over off when the killswitch is armed
 while disabled; Settings Resume stays available in that case.

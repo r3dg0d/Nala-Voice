@@ -258,6 +258,9 @@ public:
   // Drive production auto/server/cli selection (including auto→cli fallback
   // when the server fails) with scripted backends. Null keeps the real one.
   void setSpeechBackendsForTest(SpeechToText *server, SpeechToText *cli);
+  // Sticky auto→cli flag after whisper-server failed (cleared by an stt.*
+  // setting change or a successful stt status / doctor probe).
+  bool serverDeadForTest() const { return m_serverDead; }
   // Use `backend` for wake words instead of the neural one (tests).
   void setWakeBackend(wake::WakeWordBackend *backend, bool ready = true);
   // Audio as if from the microphone: frames for the detector, utterances as
