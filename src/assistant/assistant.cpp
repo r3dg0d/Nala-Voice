@@ -19,6 +19,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QUrl>
+#include <array>
 #include <climits>
 #include <memory>
 #include <tuple>
@@ -1421,25 +1422,19 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     report->done(text);
   };
   // Asynchronous checks first, so the synchronous ones overlap with them.
-  report->pending = 4;
+  report->pending = 6;
 
   m_llm->probe([this, add, finish](const QString &error) {
     const QString model = m_llm->model();
-    const bool preferred =
-        model.contains(QStringLiteral("flash-next"), Qt::CaseInsensitive);
-    add(QStringLiteral("language model"), !model.isEmpty(),
+    add(QStringLiteral("language model server"), !model.isEmpty(),
         model.isEmpty()
             ? QStringLiteral("%1 at %2")
                   .arg(LlmClient::explain(error), m_settings->string("llm.endpoint"))
-            : QStringLiteral("%1 via %2 (%3)%4")
-                  .arg(model,
-                       m_llm->server() == LlmClient::Server::Ollama
-                           ? QStringLiteral("Ollama")
+            : QStringLiteral("%1 (%2)")
+                  .arg(m_llm->server() == LlmClient::Server::Ollama
+                           ? QStringLiteral("Ollama, native API")
                            : m_settings->string("llm.endpoint"),
-                       m_llm->capabilities().join(", "),
-                       preferred ? QString()
-                                 : QStringLiteral(" -- Qwen3.8-Flash-Next is "
-                                                  "recommended; see docs/AI.md")));
+                       m_llm->capabilities().join(", ")));
     emit setupChanged();
     finish();
   });
@@ -1479,17 +1474,78 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     finish();
   });
 
+  // Two voices: Qwen3-TTS, then Fish Speech. Only when neither answers is
+  // there no voice; the reply then goes to the bubble straight away rather
+  // than failing an attempt at every one.
+  auto voices = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
+  const auto voiceKnown = [this, voices] {
+    if ((*voices)[0] < 0 || (*voices)[1] < 0)
+      return;
+    const QString engine = m_settings->string("tts.engine");
+    const bool qwenOk = (engine == "auto" || engine == "qwen") && (*voices)[0] == 1;
+    const bool fishOk = (engine == "auto" || engine == "fish") && (*voices)[1] == 1;
+    m_voiceBroken = !(qwenOk || fishOk);
+  };
+  const QString engine = m_settings->string("tts.engine");
+  QUrl qwenModels(m_settings->string("tts.qwen.endpoint"));
+  qwenModels.setPath(qwenModels.path() + "/v1/models");
+  probe(qwenModels, [this, add, finish, voices, voiceKnown, engine](bool up, QString error) {
+    (*voices)[0] = up ? 1 : 0;
+    add(QStringLiteral("Qwen3-TTS"), up,
+        up ? m_settings->string("tts.qwen.endpoint")
+           : QStringLiteral("%1 (%2)%3")
+                 .arg(m_settings->string("tts.qwen.endpoint"), error,
+                      engine == "fish" ? QString()
+                                       : QStringLiteral(" -- start an OpenAI-compatible Qwen3-TTS server; see docs/voice-pipeline.md")),
+        true);
+    voiceKnown();
+    finish();
+  });
   QUrl health(m_settings->string("tts.endpoint"));
   health.setPath(health.path() + "/v1/health");
-  probe(health, [this, add, finish](bool up, QString error) {
-    add(QStringLiteral("Fish Speech"), up,
+  probe(health, [this, add, finish, voices, voiceKnown](bool up, QString error) {
+    (*voices)[1] = up ? 1 : 0;
+    add(QStringLiteral("Fish Speech (fallback voice)"), up,
         up ? m_settings->string("tts.endpoint")
-           : QStringLiteral("%1 (%2) -- replies will be text only")
+           : QStringLiteral("%1 (%2)")
                  .arg(m_settings->string("tts.endpoint"), error),
         true);
-    // Known to be missing: answer in the bubble straight away rather than
-    // failing an attempt at every reply.
-    m_voiceBroken = !up;
+    voiceKnown();
+    finish();
+  });
+
+  // The three models, what each is doing, and whether any spills off the GPU.
+  refreshModels([this, add, finish] {
+    QStringList have;
+    for (const catalog::Installed &i : m_installed)
+      have << i.name;
+    if (!m_modelsKnown) {
+      add(QStringLiteral("models"), false,
+          m_modelsError.isEmpty() ? QStringLiteral("the server lists none")
+                                  : m_modelsError);
+      finish();
+      return;
+    }
+    for (modelrouter::Role r : {modelrouter::Role::Main, modelrouter::Role::Fast,
+                                modelrouter::Role::Speed}) {
+      const QString role = modelrouter::roleName(r);
+      const QString configured = roleModelName(r);
+      const QString found = modelrouter::findModel(configured, have);
+      add(QStringLiteral("%1 model").arg(role), !found.isEmpty(),
+          found.isEmpty()
+              ? QStringLiteral("\"%1\" is not installed (nala model list; nala model %2 <tag>)")
+                    .arg(configured.isEmpty() ? QStringLiteral("not set") : configured, role)
+              : found,
+          true); // one missing role is not a failure: another stands in
+    }
+    for (const catalog::Loaded &l : m_loaded) {
+      const bool spill = l.gpuPercent() < 100;
+      add(QStringLiteral("loaded: %1").arg(l.name), !spill,
+          spill ? QStringLiteral("only %1% on the GPU -- slow for a voice; lower llm.contextTokens "
+                                 "or pick a smaller model").arg(l.gpuPercent())
+                : QStringLiteral("100% on the GPU, context %1").arg(l.contextLength),
+          true);
+    }
     finish();
   });
 
@@ -1540,6 +1596,26 @@ void Assistant::diagnose(std::function<void(QString)> done) {
       : !tools.ydotoold ? QStringLiteral("installed, but ydotoold is not running")
                         : QStringLiteral("clicking available"),
       true);
+  {
+    const auto have = [](const char *name) {
+      return !QStandardPaths::findExecutable(QString::fromLatin1(name)).isEmpty();
+    };
+    add(QStringLiteral("volume (wpctl)"), have("wpctl"),
+        have("wpctl") ? QStringLiteral("volume commands available")
+                      : QStringLiteral("missing (wireplumber); volume commands need it"), true);
+    add(QStringLiteral("media keys (playerctl)"), have("playerctl"),
+        have("playerctl") ? QStringLiteral("pause / next / previous available")
+                          : QStringLiteral("missing; media commands need it"), true);
+    add(QStringLiteral("clipboard (wl-clipboard)"), have("wl-paste") && have("wl-copy"),
+        have("wl-paste") && have("wl-copy") ? QStringLiteral("available")
+                                            : QStringLiteral("missing; clipboard tools need it"), true);
+    add(QStringLiteral("notifications"), have("notify-send"),
+        have("notify-send") ? QStringLiteral("available") : QStringLiteral("missing (libnotify)"), true);
+    const bool recorder = have("gpu-screen-recorder") || have("wf-recorder");
+    add(QStringLiteral("video recording"), recorder,
+        recorder ? QStringLiteral("available")
+                 : QStringLiteral("missing (gpu-screen-recorder or wf-recorder)"), true);
+  }
   add(QStringLiteral("screen memory"), m_store->isOpen(),
       QStringLiteral("%1, %2 memories, %3%4")
           .arg(m_memory->status())
