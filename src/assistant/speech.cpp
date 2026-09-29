@@ -45,8 +45,7 @@ void WhisperServer::transcribe(const QByteArray &pcm16k,
   if (!m_prompt.isEmpty())
     field("prompt", m_prompt.toUtf8());
 
-  QUrl url = m_url;
-  url.setPath(url.path() + "/inference");
+  QUrl url = withApiPath(m_url, QStringLiteral("/inference"));
   QNetworkRequest request(url);
   request.setTransferTimeout(60000);
   m_clock.start();
@@ -224,8 +223,7 @@ void FishSpeech::synthesize(const QString &text) {
   if (!m_referenceId.isEmpty())
     body.insert("reference_id", m_referenceId);
 
-  QUrl url = m_endpoint;
-  url.setPath(url.path() + "/v1/tts");
+  QUrl url = withApiPath(m_endpoint, QStringLiteral("/v1/tts"));
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
   request.setTransferTimeout(120000);

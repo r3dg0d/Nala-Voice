@@ -8,6 +8,7 @@
 #include "tts.h"
 
 #include <QBuffer>
+#include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -130,7 +131,7 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
       return;
     }
     m_log->record("error", "speaker", {{"reason", why}});
-    m_voiceBroken = true;
+    markVoiceBroken();
     m_speech.clear();
     m_tts->stop();
     m_synthesizing = false;
@@ -182,7 +183,7 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
   connect(m_tts, &TextToSpeech::failed, this, [this](const QString &why) {
     // Without a voice she still answers, in the bubble.
     m_log->record("error", "tts", {{"reason", why}});
-    m_voiceBroken = true;
+    markVoiceBroken();
     m_synthesizing = false;
     m_speech.clear();
     m_speaker->stop();
@@ -1161,6 +1162,41 @@ void Assistant::stop() {
   settle();
 }
 
+
+void Assistant::markVoiceBroken() {
+  m_voiceBroken = true;
+  m_voiceBrokenAt = QDateTime::currentMSecsSinceEpoch();
+}
+
+bool Assistant::voiceBrokenNow() const {
+  if (!m_voiceBroken)
+    return false;
+  const int cool = m_tts ? m_tts->cooldownMs() : 30000;
+  if (cool > 0 &&
+      QDateTime::currentMSecsSinceEpoch() - m_voiceBrokenAt < cool)
+    return true;
+  // Still skipping engines that failed recently: wait for their cooldown too.
+  if (m_tts && !m_tts->downEngines().isEmpty())
+    return true;
+  return false;
+}
+
+void Assistant::maybeRecoverVoice() {
+  if (!m_voiceBroken || voiceBrokenNow())
+    return;
+  m_voiceBroken = false;
+  m_log->record("tts", "voice-recovered");
+}
+
+void Assistant::markVoiceBrokenForTest() { markVoiceBroken(); }
+
+void Assistant::recoverVoiceForTest() { maybeRecoverVoice(); }
+
+void Assistant::setTtsCooldownMsForTest(int ms) {
+  if (m_tts)
+    m_tts->setCooldownMs(ms);
+}
+
 // --- speaking ------------------------------------------------------------------
 
 void Assistant::say(const QString &text, bool speak) {
@@ -1174,6 +1210,7 @@ void Assistant::say(const QString &text, bool speak) {
   // Long enough to read, and longer than it takes to hear.
   m_bubbleTimer.start(std::clamp(int(text.size()) * 80, 4000, 20000));
 
+  maybeRecoverVoice();
   const bool voice = speak && !m_testing && m_settings->flag("tts.enabled") &&
                      !m_settings->flag("tts.muted") &&
                      m_settings->string("tts.engine") != "none" &&
@@ -1528,11 +1565,14 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     const QString engine = m_settings->string("tts.engine");
     const bool qwenOk = (engine == "auto" || engine == "qwen") && (*voices)[0] == 1;
     const bool fishOk = (engine == "auto" || engine == "fish") && (*voices)[1] == 1;
-    m_voiceBroken = !(qwenOk || fishOk);
+    if (qwenOk || fishOk)
+      m_voiceBroken = false;
+    else
+      markVoiceBroken();
   };
   const QString engine = m_settings->string("tts.engine");
-  QUrl qwenModels(m_settings->string("tts.qwen.endpoint"));
-  qwenModels.setPath(qwenModels.path() + "/v1/models");
+  QUrl qwenModels = withApiPath(QUrl(m_settings->string("tts.qwen.endpoint")),
+                                  QStringLiteral("/v1/models"));
   probe(qwenModels, [this, add, finish, voices, voiceKnown, engine](bool up, QString error) {
     (*voices)[0] = up ? 1 : 0;
     add(QStringLiteral("Qwen3-TTS"), up,
@@ -1545,8 +1585,8 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     voiceKnown();
     finish();
   });
-  QUrl health(m_settings->string("tts.endpoint"));
-  health.setPath(health.path() + "/v1/health");
+  QUrl health = withApiPath(QUrl(m_settings->string("tts.endpoint")),
+                            QStringLiteral("/v1/health"));
   probe(health, [this, add, finish, voices, voiceKnown](bool up, QString error) {
     (*voices)[1] = up ? 1 : 0;
     add(QStringLiteral("Fish Speech (fallback voice)"), up,

@@ -65,7 +65,8 @@ public:
   void synthesize(const QString &text) override;
   void stop() override;
   // Milliseconds an engine that failed is skipped for.
-  void setCooldownMs(int ms) { m_cooldownMs = ms; }
+  void setCooldownMs(int ms) { m_cooldownMs = ms < 0 ? 0 : ms; }
+  int cooldownMs() const { return m_cooldownMs; }
   // The engine that spoke the last sentence, for `nala tts status`.
   QString lastEngine() const { return m_lastEngine; }
   // Which engines are currently being skipped.

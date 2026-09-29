@@ -106,8 +106,10 @@ live Qwen3-TTS server on the development machine**, which had none installed.
 when Qwen3-TTS is not answering. A sentence that fails before any audio has
 played is retried on Fish Speech, so the reply continues without a gap; an engine
 that failed is skipped for 30 seconds so later sentences do not each pay for the
-timeout. If neither answers, the reply is shown in the bubble and nothing else
-breaks. `nala tts status` shows both.
+timeout. If neither answers, the reply is shown in the bubble and the voice stays
+off until that cooldown ends (then she tries again) or you change a `tts.*`
+setting. Trailing slashes on `tts.qwen.endpoint` / `tts.endpoint` are normalised
+before `/v1/...` routes are joined. `nala tts status` shows both.
 
 Command execution never waits on the voice.
 

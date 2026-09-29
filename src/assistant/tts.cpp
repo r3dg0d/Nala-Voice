@@ -32,8 +32,7 @@ QJsonObject QwenTts::requestBody(const QString &text) const {
 
 void QwenTts::synthesize(const QString &text) {
   stop();
-  QUrl url = m_config.endpoint;
-  url.setPath(url.path() + "/v1/audio/speech");
+  QUrl url = withApiPath(m_config.endpoint, QStringLiteral("/v1/audio/speech"));
   QNetworkRequest request(url);
   request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
   request.setTransferTimeout(120000);
@@ -121,8 +120,7 @@ void QwenTts::stop() {
 }
 
 void QwenTts::check(std::function<void(QString)> done) {
-  QUrl url = m_config.endpoint;
-  url.setPath(url.path() + "/v1/models");
+  QUrl url = withApiPath(m_config.endpoint, QStringLiteral("/v1/models"));
   QNetworkRequest request(url);
   request.setTransferTimeout(3000);
   QNetworkReply *reply = m_network->get(request);

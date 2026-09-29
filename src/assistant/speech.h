@@ -83,6 +83,21 @@ private:
   QElapsedTimer m_clock;
 };
 
+// Append an API path to a configured endpoint without doubling slashes when
+// the endpoint already ends with '/'. Used by Fish Speech, Qwen3-TTS, and
+// doctor/status probes so `http://127.0.0.1:8880/` reaches the same routes as
+// `http://127.0.0.1:8880`.
+inline QUrl withApiPath(QUrl base, const QString &apiPath) {
+  QString path = base.path();
+  while (path.endsWith(QLatin1Char('/')))
+    path.chop(1);
+  QString suffix = apiPath;
+  if (!suffix.startsWith(QLatin1Char('/')))
+    suffix.prepend(QLatin1Char('/'));
+  base.setPath(path + suffix);
+  return base;
+}
+
 // --- text to speech ----------------------------------------------------------
 
 // Turns text into audio, streamed as it is produced. Implementations emit a

@@ -6,6 +6,16 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+### Fixed
+
+- **TTS voice recovery**: after Qwen3-TTS / Fish Speech (or the speaker) fail,
+  `m_voiceBroken` clears once the TtsChain cooldown ends, so a voice server that
+  comes back is found without changing a settings key. `nala tts status` notes
+  the cooldown retry.
+- **Fish / Qwen endpoint paths**: trailing slashes on `tts.endpoint` /
+  `tts.qwen.endpoint` no longer produce `//v1/...` routes (doctor probes and
+  synthesise share the same join helper).
+
 ## 1.3.3 — 2026-09-29
 
 Scripting-friendly doctor exits, and safer barge-in without echo cancellation.

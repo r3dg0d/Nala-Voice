@@ -51,9 +51,12 @@ once on the next local model (`journalctl` is not needed; see
 `nala tts status` shows whether Qwen3-TTS and Fish Speech answer. Neither is
 started by Nala; run an OpenAI-compatible Qwen3-TTS server on
 `tts.qwen.endpoint` (default `http://127.0.0.1:8880`), or Fish Speech on
-`tts.endpoint`. With neither, replies appear in the bubble. After starting one,
-change any `tts.*` setting (or restart Nala) so she tries again. If the voice is
-choppy or pitched wrong, `tts.qwen.sampleRate` is wrong for your server.
+`tts.endpoint`. With neither, replies appear in the bubble. After a TTS or
+speaker failure she skips the voice for the TtsChain cooldown (default 30 s),
+then retries automatically when the server is back; change any `tts.*` setting
+to retry immediately. Trailing slashes on those endpoints are fine. If the
+voice is choppy or pitched wrong, `tts.qwen.sampleRate` is wrong for your
+server.
 
 ## She does not hear me
 

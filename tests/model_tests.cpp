@@ -1105,6 +1105,96 @@ private slots:
     QCOMPARE(audioSpy.size(), 0);
   }
 
+  void withApiPathStripsTrailingSlash() {
+    QCOMPARE(withApiPath(QUrl("http://127.0.0.1:8880"), "/v1/models").toString(),
+             QString("http://127.0.0.1:8880/v1/models"));
+    QCOMPARE(withApiPath(QUrl("http://127.0.0.1:8880/"), "/v1/models").toString(),
+             QString("http://127.0.0.1:8880/v1/models"));
+    QCOMPARE(withApiPath(QUrl("http://127.0.0.1:8080/"), "v1/tts").toString(),
+             QString("http://127.0.0.1:8080/v1/tts"));
+    QCOMPARE(withApiPath(QUrl("http://127.0.0.1:8080/fish/"), "/v1/health").toString(),
+             QString("http://127.0.0.1:8080/fish/v1/health"));
+  }
+
+  void qwenAndFishReachServerWhenEndpointHasTrailingSlash() {
+    FakeServer qwenSrv, fishSrv;
+    qwenSrv.replies["/v1/audio/speech"].body = QByteArray(800, '\x01');
+    fishSrv.replies["/v1/tts"].body = audio::wav(QByteArray(600, '\x02'), 44100);
+    QNetworkAccessManager net;
+    QwenTts qwen(&net);
+    QwenTts::Config qc;
+    qc.endpoint = QUrl(qwenSrv.url("").toString() + "/"); // trailing slash
+    qc.streaming = true;
+    qwen.configure(qc);
+    FishSpeech fish(&net);
+    fish.configure(QUrl(fishSrv.url("").toString() + "/"), {}, false, {});
+
+    QSignalSpy qDone(&qwen, &TextToSpeech::done);
+    QByteArray qGot;
+    connect(&qwen, &TextToSpeech::audio, this, [&](const QByteArray &b) { qGot += b; });
+    qwen.synthesize("Hi.");
+    QVERIFY(qDone.wait(5000));
+    QCOMPARE(qwenSrv.paths.count("/v1/audio/speech"), 1);
+    QVERIFY(qGot.size() >= 800);
+
+    QSignalSpy fDone(&fish, &TextToSpeech::done);
+    QByteArray fGot;
+    connect(&fish, &TextToSpeech::audio, this, [&](const QByteArray &b) { fGot += b; });
+    fish.synthesize("Hi.");
+    QVERIFY(fDone.wait(5000));
+    QCOMPARE(fishSrv.paths.count("/v1/tts"), 1);
+    QCOMPARE(fGot.size(), 600);
+  }
+
+  void chainRetriesPrimaryAfterCooldown() {
+    FakeServer qwenSrv, fishSrv;
+    qwenSrv.replies["/v1/audio/speech"] = {500, "{}", {}};
+    fishSrv.replies["/v1/tts"].body = audio::wav(QByteArray(400, '\x03'), 44100);
+    QNetworkAccessManager net;
+    QwenTts qwen(&net);
+    QwenTts::Config qc;
+    qc.endpoint = qwenSrv.url("");
+    qwen.configure(qc);
+    FishSpeech fish(&net);
+    fish.configure(fishSrv.url(""), {}, false, {});
+    TtsChain chain;
+    chain.setCooldownMs(40);
+    chain.setEngines({&qwen, &fish});
+
+    QSignalSpy done1(&chain, &TextToSpeech::done);
+    chain.synthesize("One.");
+    QVERIFY(done1.wait(5000));
+    QCOMPARE(chain.lastEngine(), QString("fish-speech"));
+    QCOMPARE(chain.downEngines(), QStringList{"qwen3-tts"});
+    QCOMPARE(qwenSrv.paths.count("/v1/audio/speech"), 1);
+
+    // Primary comes back; after the cooldown the chain should try it again.
+    qwenSrv.replies["/v1/audio/speech"] = {200, QByteArray(500, '\x04'), {}};
+    QTest::qWait(60);
+    QCOMPARE(chain.downEngines(), QStringList{});
+    QSignalSpy done2(&chain, &TextToSpeech::done);
+    chain.synthesize("Two.");
+    QVERIFY(done2.wait(5000));
+    QCOMPARE(chain.lastEngine(), QString("qwen3-tts"));
+    QCOMPARE(qwenSrv.paths.count("/v1/audio/speech"), 2);
+    QCOMPARE(fishSrv.paths.count("/v1/tts"), 1); // second sentence did not need fish
+  }
+
+  void voiceBrokenRecoversAfterTtsCooldown() {
+    Rig rig;
+    rig.a->setTtsCooldownMsForTest(40);
+    rig.a->markVoiceBrokenForTest();
+    QVERIFY(rig.a->voiceBrokenForTest());
+    QVERIFY(rig.a->voiceBrokenNowForTest());
+    // Still inside the cooldown: recovery must not clear it yet.
+    rig.a->recoverVoiceForTest();
+    QVERIFY(rig.a->voiceBrokenForTest());
+    QTest::qWait(60);
+    QVERIFY(!rig.a->voiceBrokenNowForTest());
+    rig.a->recoverVoiceForTest();
+    QVERIFY(!rig.a->voiceBrokenForTest());
+  }
+
   // --- the assistant, end to end against a fake model server -------------------------
 private:
   struct Rig {

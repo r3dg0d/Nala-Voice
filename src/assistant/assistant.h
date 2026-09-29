@@ -218,6 +218,13 @@ public:
   // of synthesising it (no audio device is touched).
   void setVoiceForTest(bool on) { m_voiceForTest = on; }
   QStringList spokenForTest() const { return m_spokenForTest; }
+  // Tests: mark the voice broken as after a TTS/speaker failure, and force the
+  // TtsChain cooldown length so recovery can be checked without waiting 30 s.
+  void markVoiceBrokenForTest();
+  void recoverVoiceForTest();
+  bool voiceBrokenForTest() const { return m_voiceBroken; }
+  bool voiceBrokenNowForTest() const { return voiceBrokenNow(); }
+  void setTtsCooldownMsForTest(int ms);
 
   // Health of every backend, refreshed in the background. `done` gets a
   // human-readable report.
@@ -350,6 +357,9 @@ private:
   // Speaking.
   void say(const QString &text, bool speak = true);
   void speakNext();
+  void markVoiceBroken();
+  bool voiceBrokenNow() const;
+  void maybeRecoverVoice();
   void finishSpeaking();
   // Barge-in without AEC: tighten the wake gate while she talks.
   void syncWakeEchoGuard();
@@ -479,6 +489,7 @@ private:
   bool m_synthesizing = false;
   bool m_speaking = false;
   bool m_voiceBroken = false;
+  qint64 m_voiceBrokenAt = 0; // ms since epoch when voice broke
   bool m_followAfter = false; // what is being said is an answer
   bool m_chiming = false;     // the speaker is playing the wake chime
   QProcess *m_recorder = nullptr; // a video recording she started, if any

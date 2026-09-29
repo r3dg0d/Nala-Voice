@@ -26,6 +26,10 @@ routing to the right model, VRAM eviction before a load, the 16384 context at
 100% GPU, warm first token 449 ms, `nala model status|list`, `nala doctor`,
 `nala benchmark`, `nala latency`, whisper-server and ydotoold as services.
 
+**TTS recovery (1.3.3+ Unreleased):** after a TTS/speaker failure, `m_voiceBroken`
+clears when the TtsChain cooldown ends so a returning server is found without a
+settings tweak; covered by offline FakeServer tests.
+
 **Not verified:** a live Qwen3-TTS server (none installed; the client is written
 against the documented `/v1/audio/speech` API and tested against a fake), Fish
 Speech, `gpt-oss:20b` and `qwen3:30b-a3b` (not installed on the development

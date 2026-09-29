@@ -403,13 +403,14 @@ bool Assistant::voiceOn() const {
     return true;
   return !m_testing && m_settings->flag("tts.enabled") &&
          !m_settings->flag("tts.muted") &&
-         m_settings->string("tts.engine") != "none" && !m_voiceBroken;
+         m_settings->string("tts.engine") != "none" && !voiceBrokenNow();
 }
 
 void Assistant::onModelDelta(const QString &text) {
   m_streamText += text;
   m_bubble = SentenceStream::speakable(m_streamText);
   emit bubbleChanged();
+  maybeRecoverVoice();
   if (!voiceOn())
     return;
   for (const QString &sentence : m_sentences.feed(text))
@@ -587,8 +588,11 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
     const QStringList down = m_tts->downEngines();
     if (!down.isEmpty())
       text += QStringLiteral("\n  Skipping for now after a failure: %1").arg(down.join(", "));
+    maybeRecoverVoice();
     if (m_voiceBroken)
-      text += QStringLiteral("\n  Voice is off after an error this session; change a tts setting to retry.");
+      text += QStringLiteral(
+          "\n  Voice is off after an error; will retry after the TTS cooldown "
+          "(or change a tts setting to retry now).");
     done(text);
   };
   checkUrl(qwen, [lines, finish, qwen, engine](bool up, QString error) {
