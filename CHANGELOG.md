@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Report truncated SSE/Ollama streams as failures instead of accepting partial answers; preserve completion-marker compatibility and verify next-request recovery with fake-server tests.
+
+
 This project follows [semantic versioning](https://semver.org/). The version
 lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 `nala --version` reports.

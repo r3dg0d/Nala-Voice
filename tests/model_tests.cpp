@@ -460,6 +460,92 @@ private slots:
     QVERIFY(srv.chatBodies.first().value("stream").toBool());
   }
 
+  void rejectsTruncatedStreams_data() {
+    QTest::addColumn<bool>("native");
+    QTest::addColumn<bool>("toolCall");
+    QTest::newRow("openai-sse-text") << false << false;
+    QTest::newRow("ollama-ndjson-text") << true << false;
+    QTest::newRow("openai-sse-tool") << false << true;
+    QTest::newRow("ollama-ndjson-tool") << true << true;
+  }
+
+  void rejectsTruncatedStreams() {
+    QFETCH(bool, native);
+    QFETCH(bool, toolCall);
+    FakeServer srv;
+    srv.replies["/api/version"].body = "{\"version\":\"test\"}";
+    srv.replies["/api/show"].body = "{\"capabilities\":[\"tools\"]}";
+    const QString path = native ? "/api/chat" : "/v1/chat/completions";
+    srv.replies[path].ndjson = native;
+    srv.replies[path].events =
+        native
+            ? QStringList{QStringLiteral("{\"message\":{\"content\":\"Partial "
+                                         "answer\"},\"done\":false}")}
+            : QStringList{contentChunk("Partial answer")};
+    if (toolCall) {
+      srv.replies[path].events =
+          native ? QStringList{QStringLiteral(
+                       "{\"message\":{\"tool_calls\":[{\"function\":{\"name\":"
+                       "\"get_time\",\"arguments\":{}}}]},\"done\":false}")}
+                 : QStringList{chunk("{\"tool_calls\":[{\"index\":0,\"id\":"
+                                     "\"call\",\"function\":{\"name\":\"get_"
+                                     "time\",\"arguments\":\"{}\"}}]}")};
+    }
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    auto config = configFor(srv, "m");
+    config.provider = native ? "ollama" : "llamacpp";
+    llm.configure(config);
+    QSignalSpy done(&llm, &LlmClient::replied);
+    QSignalSpy failed(&llm, &LlmClient::failed);
+    llm.chatStream(
+        QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(failed.wait(5000));
+    QCOMPARE(done.size(), 0);
+    QCOMPARE(failed.size(), 1);
+    QVERIFY(failed.first().first().toString().contains("before completion"));
+
+    // A complete next turn must recover without retaining the partial answer.
+    srv.replies[path].events =
+        native
+            ? QStringList{QStringLiteral("{\"message\":{\"content\":\"Complete "
+                                         "answer\"},\"done\":true}")}
+            : streamOf("Complete answer");
+    llm.chatStream(
+        QJsonArray{QJsonObject{{"role", "user"}, {"content", "retry"}}});
+    QVERIFY(done.wait(5000));
+    QCOMPARE(done.first().first().value<LlmReply>().content,
+             QString("Complete answer"));
+    QCOMPARE(failed.size(), 1);
+  }
+
+  void acceptsEitherSseCompletionMarker_data() {
+    QTest::addColumn<QString>("marker");
+    QTest::newRow("done-sentinel") << QString("[DONE]");
+    QTest::newRow("finish-reason")
+        << QString("{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+  }
+
+  void acceptsEitherSseCompletionMarker() {
+    QFETCH(QString, marker);
+    FakeServer srv;
+    srv.replies["/v1/chat/completions"].events = {contentChunk("Complete"),
+                                                  marker};
+    QNetworkAccessManager net;
+    LlmClient llm(&net);
+    auto config = configFor(srv, "m");
+    config.provider = "llamacpp";
+    llm.configure(config);
+    QSignalSpy done(&llm, &LlmClient::replied);
+    QSignalSpy failed(&llm, &LlmClient::failed);
+    llm.chatStream(
+        QJsonArray{QJsonObject{{"role", "user"}, {"content", "hi"}}});
+    QVERIFY(done.wait(5000));
+    QCOMPARE(done.first().first().value<LlmReply>().content,
+             QString("Complete"));
+    QCOMPARE(failed.size(), 0);
+  }
+
   void assemblesStreamedToolCalls() {
     FakeServer srv;
     srv.replies["/v1/chat/completions"].events = {

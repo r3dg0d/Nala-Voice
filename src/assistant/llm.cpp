@@ -476,6 +476,11 @@ void LlmClient::send(const QJsonArray &messages, const QJsonArray &tools,
       emit failed(explain(detail.isEmpty() ? reply->errorString() : detail));
       return;
     }
+    if (streaming && m_finish.isEmpty()) {
+      emit failed(QStringLiteral(
+          "The model stream ended before completion. Try again."));
+      return;
+    }
     QString error;
     const QJsonObject whole = QJsonDocument::fromJson(bytes).object();
     const LlmReply parsed = parse(
@@ -524,8 +529,13 @@ void LlmClient::takeStream(QNetworkReply *reply) {
     if (!line.startsWith("data:"))
       continue;
     const QByteArray data = line.mid(5).trimmed();
-    if (data.isEmpty() || data == "[DONE]")
+    if (data.isEmpty())
       continue;
+    if (data == "[DONE]") {
+      if (m_finish.isEmpty())
+        m_finish = QStringLiteral("stop");
+      continue;
+    }
     const QJsonObject event = QJsonDocument::fromJson(data).object();
     if (event.contains("error")) {
       m_finish = QStringLiteral("error");

@@ -208,3 +208,14 @@ smaller model is not a better one; use them to choose a latency profile. The two
 models together (18 GB + 10 GB) do not fit a 24 GB card at once, which is why
 Nala unloads one before loading the other; switching costs a model load
 (13 s for the smaller here).
+
+
+### Interrupted streaming replies
+
+A streamed response must include a completion indication: a non-empty
+`finish_reason` or `[DONE]` for compatible SSE servers, or `done: true` for native
+Ollama. If the HTTP connection closes after partial text without that indication,
+Nala reports that the stream ended before completion instead of committing a
+successful answer or dispatching accumulated tool calls. Text already streamed
+may have been displayed or spoken; it cannot be retracted. A subsequent request
+starts with a fresh buffer. Fake-server tests cover both protocols and recovery.
