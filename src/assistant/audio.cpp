@@ -3,7 +3,12 @@
 #include <QAudioDevice>
 #include <QAudioSink>
 #include <QAudioSource>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMediaDevices>
+#include <QPointer>
+#include <QProcess>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -23,7 +28,60 @@ QAudioDevice pick(const QList<QAudioDevice> &all, const QAudioDevice &fallback,
 
 // --- microphone ------------------------------------------------------------
 
+bool Microphone::sourceListedInPwDump(const QByteArray &json,
+                                      const QString &device) {
+  const QJsonDocument doc = QJsonDocument::fromJson(json);
+  if (!doc.isArray())
+    return true; // unreadable: cannot tell, so do not cry wolf
+  for (const QJsonValue &value : doc.array()) {
+    const QJsonObject props = value.toObject()
+                                  .value(QStringLiteral("info"))
+                                  .toObject()
+                                  .value(QStringLiteral("props"))
+                                  .toObject();
+    if (!props.value(QStringLiteral("media.class"))
+             .toString()
+             .startsWith(QLatin1String("Audio/Source")))
+      continue;
+    for (const char *key : {"node.description", "node.name", "node.nick"})
+      if (props.value(QLatin1String(key)).toString() == device)
+        return true;
+  }
+  return false;
+}
+
+Microphone::PresenceCheck Microphone::pipewirePresenceCheck() {
+  return [](const QString &device, std::function<void(bool)> done) {
+    auto *proc = new QProcess;
+    auto answered = std::make_shared<bool>(false);
+    const auto finish = [proc, done, answered](bool present) {
+      if (*answered)
+        return;
+      *answered = true;
+      proc->disconnect();
+      proc->deleteLater();
+      done(present);
+    };
+    QObject::connect(proc, &QProcess::errorOccurred, proc,
+                     [finish](QProcess::ProcessError) { finish(true); });
+    QObject::connect(proc, &QProcess::finished, proc,
+                     [proc, device, finish](int code, QProcess::ExitStatus st) {
+                       finish(st != QProcess::NormalExit || code != 0 ||
+                              sourceListedInPwDump(proc->readAllStandardOutput(),
+                                                   device));
+                     });
+    QTimer::singleShot(4000, proc, [proc, finish] {
+      proc->kill();
+      finish(true);
+    });
+    proc->start(QStringLiteral("pw-dump"), {});
+  };
+}
+
 Microphone::Microphone(QObject *parent) : QObject(parent) {
+  m_presence = pipewirePresenceCheck();
+  m_watch.setInterval(3000);
+  connect(&m_watch, &QTimer::timeout, this, &Microphone::checkPresence);
   m_retry.setSingleShot(true);
   connect(&m_retry, &QTimer::timeout, this, &Microphone::retry);
   connect(&m_devices, &QMediaDevices::audioInputsChanged, this,
@@ -88,6 +146,8 @@ bool Microphone::open(const QString &device,
   }
   m_openId = input.id();
   m_wantOpen = true;
+  if (!device.isEmpty())
+    m_watch.start();
   connect(m_io, &QIODevice::readyRead, this, &Microphone::read);
   // A source that stops with an error (unplugged, PipeWire restarted) would
   // otherwise leave us "open" and deaf.
@@ -106,6 +166,7 @@ bool Microphone::open(const QString &device,
 void Microphone::lose(const QString &reason) {
   if (!m_wantOpen)
     return;
+  m_watch.stop();
   if (m_source) {
     // Disconnect first: stop() emits stateChanged and we must not re-enter.
     m_source->disconnect(this);
@@ -125,7 +186,46 @@ void Microphone::lose(const QString &reason) {
   m_retry.start(retryDelayMs(m_attempt++));
 }
 
+void Microphone::checkPresence() {
+  if (m_checking || !m_source || m_device.isEmpty() || !m_presence)
+    return;
+  m_checking = true;
+  QPointer<Microphone> self(this);
+  m_presence(m_device, [self](bool present) {
+    if (!self)
+      return;
+    self->m_checking = false;
+    if (!present && self->m_source)
+      self->lose(QStringLiteral(
+          "The selected microphone is no longer present."));
+  });
+}
+
 void Microphone::retry() {
+  if (!m_wantOpen || m_source)
+    return;
+  // A named device: Qt's list keeps a removed source, and opening it would let
+  // the server attach us to the default microphone instead. Ask PipeWire.
+  if (!m_device.isEmpty() && m_presence && !m_checking) {
+    m_checking = true;
+    QPointer<Microphone> self(this);
+    m_presence(m_device, [self](bool present) {
+      if (!self)
+        return;
+      self->m_checking = false;
+      if (!self->m_wantOpen || self->m_source)
+        return;
+      if (present)
+        self->reopen();
+      else
+        self->m_retry.start(retryDelayMs(self->m_attempt++));
+    });
+    return;
+  }
+  reopen();
+}
+
+void Microphone::reopen() {
   if (!m_wantOpen || m_source)
     return;
   if (open(m_device, m_vadConfig, false)) {
@@ -170,6 +270,7 @@ void Microphone::onDevicesChanged() {
 }
 
 void Microphone::stop() {
+  m_watch.stop();
   m_wantOpen = false;
   m_wasLost = false;
   m_attempt = 0;

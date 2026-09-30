@@ -3,10 +3,14 @@
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Where things stand (1.3.9+)
+## Where things stand (1.3.10+)
 
-1.3.9: `Microphone` reconnects itself after a device loss (backoff, device
-list watch, follows a changed system default); unit-tested via a loss hook only —
+1.3.10: mic recovery verified against a real PipeWire server. Qt does NOT report a
+removed PipeWire source (no signal, stale list, and the server re-links the stream to
+the default mic), so a selected microphone is watched via `pw-dump` every 3 s and
+reopened only when PipeWire lists it again. Run `~/Projects/r3dg0d-maintenance/nala-live-mic.sh`-style
+checks with a `pw-loopback` virtual source (see CHANGELOG). Older backends still use
+Qt's error/device signals, unit-tested via a loss hook only —
 the speaker also reports a dead output (`Speaker::pump`) instead of hanging;
 a real unplug is **not verified live**.
 

@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QStringList>
 #include <QTimer>
+#include <functional>
 #include <memory>
 
 class QAudioSink;
@@ -36,8 +37,23 @@ public:
   // Delay before reconnect attempt `attempt` (0-based): 1 s doubling to 15 s.
   static int retryDelayMs(int attempt);
 
+  // Is the chosen microphone still there? Qt's audio-device list and stream
+  // state do not report a removed PipeWire source (measured: no signal, no
+  // error, a stale list, and the server quietly re-links the stream to the
+  // default microphone), so we ask PipeWire directly. `done(true)` when it is
+  // present or when we cannot tell, so a missing tool never causes a false alarm.
+  using PresenceCheck =
+      std::function<void(const QString &device, std::function<void(bool)> done)>;
+  static PresenceCheck pipewirePresenceCheck();
+  void setPresenceCheck(PresenceCheck check) { m_presence = std::move(check); }
+  // Is `device` (a description, node name or nick) an Audio/Source node in the
+  // output of `pw-dump`? Pure, so it can be tested without PipeWire.
+  static bool sourceListedInPwDump(const QByteArray &json, const QString &device);
+
   // Feed samples as if they came from the device. For tests.
   void inject(const QVector<int16_t> &samples16k);
+  // Pretend `device` was selected. For tests.
+  void selectDeviceForTest(const QString &device) { m_device = device; }
   // Behave as if the device died under us. For tests.
   void simulateLostForTest(const QString &reason) {
     m_wantOpen = true;
@@ -65,10 +81,15 @@ private:
   void lose(const QString &reason);
   void retry();
   void onDevicesChanged();
+  void checkPresence();
+  void reopen();
 
   std::unique_ptr<QAudioSource> m_source;
   QMediaDevices m_devices;
   QTimer m_retry;
+  QTimer m_watch; // polls the presence check while a specific device is open
+  PresenceCheck m_presence;
+  bool m_checking = false;
   QString m_device;
   QByteArray m_openId; // id of the device actually opened
   audio::VoiceActivity::Config m_vadConfig;

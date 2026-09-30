@@ -67,10 +67,12 @@ server.
 For a wake word, see [WAKEWORD.md](WAKEWORD.md); `nala --ptt` tests everything
 after the wake word without it.
 
-If you unplug or switch the microphone while she is running, she keeps retrying
-in the background (1 s, doubling to 15 s) and picks it up again on her own;
-`microphone-lost` / `microphone-recovered` appear in the event log. A microphone
-left on "system default" follows the default when it changes.
+If the microphone you selected is unplugged while she is running, she stops
+listening within about 3 s (she checks with PipeWire's `pw-dump`), retries in the
+background (1 s, doubling to 15 s) and picks it up again on her own once PipeWire lists
+it; `microphone-lost` / `microphone-recovered` appear in the event log. She does not
+quietly switch to another microphone. With "system default" selected, PipeWire's own
+routing applies. Without `pw-dump` she cannot tell and assumes the device is there.
 
 ## Clicking and typing do nothing
 

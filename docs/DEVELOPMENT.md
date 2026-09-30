@@ -47,6 +47,13 @@ NALA_TEST_LLM=http://127.0.0.1:11434/v1 NALA_TEST_LLM_MODEL=<model> \
 NALA_TEST_FISH=http://127.0.0.1:8080 build/nala-assistant-tests liveFishSpeech
 ```
 
+## Checking microphone recovery with a real device
+
+`scripts/live-mic-check.sh` creates a temporary silent PipeWire virtual source, points a
+headless Nala at it, removes and restores it, and prints the `microphone-*` events. Qt does
+not report a removed PipeWire source, so this is the only way to see the real behaviour;
+the unit tests only cover the parsing and retry logic.
+
 ## Trying the UI without disturbing your desktop
 
 Run a headless sway with a short `XDG_RUNTIME_DIR` (socket paths must fit in

@@ -1753,6 +1753,53 @@ private slots:
     QVERIFY(!mic.reconnecting());
   }
 
+  void pwDumpParsingFindsRealSourcesOnly() {
+    const QByteArray dump = R"([
+      {"id":1,"type":"PipeWire:Interface:Core","info":{"props":{}}},
+      {"id":50,"type":"PipeWire:Interface:Node","info":{"props":{
+        "media.class":"Audio/Source","node.name":"alsa_input.usb-Focusrite-00.HiFi__Mic1__source",
+        "node.description":"Scarlett 2i2 Input 1","node.nick":"Scarlett"}}},
+      {"id":51,"type":"PipeWire:Interface:Node","info":{"props":{
+        "media.class":"Audio/Source/Virtual","node.name":"virt_mic","node.description":"Virtual Mic"}}},
+      {"id":52,"type":"PipeWire:Interface:Node","info":{"props":{
+        "media.class":"Audio/Sink","node.name":"speakers","node.description":"Scarlett 2i2 Output"}}}
+    ])";
+    QVERIFY(Microphone::sourceListedInPwDump(dump, "Scarlett 2i2 Input 1"));
+    QVERIFY(Microphone::sourceListedInPwDump(dump, "alsa_input.usb-Focusrite-00.HiFi__Mic1__source"));
+    QVERIFY(Microphone::sourceListedInPwDump(dump, "Scarlett"));
+    QVERIFY2(Microphone::sourceListedInPwDump(dump, "Virtual Mic"), "virtual sources count");
+    QVERIFY2(!Microphone::sourceListedInPwDump(dump, "Scarlett 2i2 Output"),
+             "a sink with that name is not a microphone");
+    QVERIFY(!Microphone::sourceListedInPwDump(dump, "Unplugged Headset"));
+    QVERIFY(!Microphone::sourceListedInPwDump("[]", "anything"));
+    // Unreadable output means "cannot tell", never "gone".
+    QVERIFY(Microphone::sourceListedInPwDump("", "anything"));
+    QVERIFY(Microphone::sourceListedInPwDump("not json", "anything"));
+  }
+
+  // A named microphone is only reopened once PipeWire says it is back; until
+  // then we keep asking, instead of letting the server attach us to the
+  // default microphone.
+  void microphoneWaitsForTheNamedDeviceToReturn() {
+    Microphone mic;
+    int asked = 0;
+    bool present = false;
+    mic.setPresenceCheck([&](const QString &device, std::function<void(bool)> done) {
+      QCOMPARE(device, QString("Headset"));
+      ++asked;
+      done(present);
+    });
+    mic.selectDeviceForTest("Headset");
+    mic.simulateLostForTest("unplugged");
+    QVERIFY(mic.reconnecting());
+    QTRY_VERIFY_WITH_TIMEOUT(asked >= 2, 6000); // 1 s, then 2 s backoff
+    QVERIFY(mic.reconnecting() && !mic.active());
+    mic.stop();
+    const int after = asked;
+    QTest::qWait(1500);
+    QCOMPARE(asked, after); // stop() cancels the polling
+  }
+
   void speakerSinkErrorReportsFailureAndStops() {
     Speaker speaker;
     QSignalSpy failed(&speaker, &Speaker::failed);

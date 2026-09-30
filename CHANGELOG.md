@@ -6,6 +6,31 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.10 — 2026-09-30
+
+Microphone recovery that actually works on PipeWire, found by testing with a real
+device instead of a simulated failure.
+
+### Fixed
+
+- **Selected microphone disappearing on PipeWire.** 1.3.9's recovery listened for Qt's
+  device-change signals and stream errors. Measured against a live PipeWire server, Qt
+  reports neither when a source is removed: no signal, no state change, a stale device
+  list, and the server silently re-links the capture stream to the *default* microphone.
+  So Nala kept listening on a different device without saying so, and the recovery never
+  ran. When a specific microphone is selected she now asks PipeWire (`pw-dump`) every
+  3 s; if it is gone she stops listening, logs `microphone-lost`, retries with backoff,
+  and only reopens once PipeWire lists the device again (`microphone-recovered`).
+  Verified live: lost ~2 s after removal, recovered <1 s after it returned.
+  If `pw-dump` is missing or unreadable she assumes the device is present, so nothing
+  changes without PipeWire's tools. With "system default" selected, PipeWire's own
+  routing applies as before.
+
+### Tests
+
+- Parsing of `pw-dump` output (source by description/name/nick, sinks and
+  garbage not mistaken for a microphone) and the wait-until-it-returns retry loop.
+
 ## 1.3.9 — 2026-09-29
 
 Audio device recovery: the microphone and the speaker survive a device
