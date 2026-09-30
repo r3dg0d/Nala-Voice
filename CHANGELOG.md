@@ -6,6 +6,11 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.3.9 — 2026-09-29
+
+Audio device recovery: the microphone and the speaker survive a device
+disappearing mid-session, and `nala tts status` agrees with doctor.
+
 ### Fixed
 
 - **Microphone recovery**: if the input device is unplugged, errors, or PipeWire
@@ -19,9 +24,6 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
   playback waiting on a sink that never drained, so she stayed "speaking". The
   speaker now reports the failure, and she drops the rest of the reply and
   settles (voice marked broken until the TTS cooldown ends).
-
-### Fixed
-
 - **TTS status sticky sync**: `nala tts status` aligns the sticky voice-broken
   flag with live Qwen3-TTS / Fish Speech probes (same paths and recovery
   contract as doctor) — clears the failure and reports `Voice server is back`
@@ -31,6 +33,8 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ### Tests
 
+- **Audio recovery**: retry backoff and one-shot loss reporting for the
+  microphone; a speaker sink error reports failure and stops playback.
 - **TTS status sticky**: offline coverage for clearing voice-broken when a
   server responds, keeping it when both stay down, and marking it when status
   finds no voice server.
