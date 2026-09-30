@@ -94,6 +94,13 @@ void CommandRouter::build() {
       "again",
       "memory.resume");
 
+  // A single named click goes straight to the permissioned grounding tool.
+  // Multi-action requests remain with the model.
+  add("(?!.*\\b(?:and|then)\\b)(?:click|tap)\\s+(?:on\\s+)?(?:the\\s+)?(.{1,200})",
+      "computer.locate", [](const QRegularExpressionMatch &m) {
+        return QVariantMap{{"target", m.captured(1)}};
+      });
+
   // Forgetting.
   add("(?:forget|delete|erase|wipe|remove)\\s+(?:everything\\s+from\\s+)?"
       "(?:the\\s+)?(?:last|past|previous)\\s+(\\d+)?\\s*" +

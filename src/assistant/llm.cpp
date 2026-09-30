@@ -55,7 +55,7 @@ QString LlmClient::pickModel(const QStringList &available,
 QStringList LlmClient::guessCapabilities(const QString &model) {
   QStringList caps{QStringLiteral("tools")};
   static const QRegularExpression vision(
-      QStringLiteral("vl|vision|omni|llava|flash-next|gemma-?3|pixtral|"
+      QStringLiteral("vl|vision|omni|llava|flash-next|gemma-?[34]|pixtral|"
                      "minicpm-v|moondream|qvq"),
       QRegularExpression::CaseInsensitiveOption);
   if (vision.match(model).hasMatch())

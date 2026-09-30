@@ -3,6 +3,8 @@
 #include "contextbudget.h"
 #include "eventlog.h"
 #include "screenmemory.h"
+#include "guigrounder.h"
+#include "retrieval.h"
 #include "settings.h"
 #include "speech.h"
 #include "tts.h"
@@ -92,6 +94,8 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
     m_memory->setOffline(true);
 
   m_memory->setVisionCheck([this] { return visionEnabled(); });
+  m_retrieval = new Retrieval(m_store.get(), m_settings, &m_network, this);
+  if (!m_testing && !m_oneshot) m_retrieval->startIndexing();
 
   m_mic = new Microphone(this);
   connect(m_mic, &Microphone::utterance, this, &Assistant::onUtterance);
@@ -331,6 +335,7 @@ void Assistant::settle() {
 
 void Assistant::applySettings(const QString &key) {
   m_log->setDebug(m_settings->flag("developer.debug"));
+  m_store->setFeatures(m_settings->flag("memory.durable.enabled"), m_settings->flag("memory.entities.enabled"));
 
   const QString oldName = m_identity.name;
   const QStringList oldPhrases = m_identity.wakePhrases();
@@ -730,6 +735,17 @@ void Assistant::handle(const QString &text, bool spoken) {
 }
 
 void Assistant::runFast(const Route &route) {
+  if (route.action == "computer.locate") {
+    stop(); const int turn = m_turn;
+    callTool("computer.locate_and_click", QJsonObject::fromVariantMap(route.args),
+      [this, turn](QJsonObject result) {
+        if (turn != m_turn) return;
+        say(result.value("ok").toBool()
+          ? "The click produced a visible change."
+          : result.value("error").toString("The click could not be verified."), false);
+      });
+    return;
+  }
   const QString &a = route.action;
   const QVariantMap &args = route.args;
   const auto companion = [this](const QString &command) {
@@ -1009,6 +1025,7 @@ void Assistant::onModelReply(const LlmReply &reply) {
   }
 
   QString text = reply.content;
+  if (m_memoryAnswer) text = semantic::checkedAnswer(text, m_turnEvidence, m_settings->flag("developer.debug"));
   if (text.isEmpty())
     text = reply.toolCalls.isEmpty()
                ? QStringLiteral("Hmm, I don't have an answer for that.")
@@ -1105,6 +1122,9 @@ void Assistant::callTool(const QString &name, const QJsonObject &args,
   }
 
   const auto runIt = [this, tool, name, args, done] {
+    if (!categories().contains(tool->category)) {
+      done(fail("Access was switched off while awaiting confirmation.")); return;
+    }
     m_acting = true;
     settle();
     auto clock = std::make_shared<QElapsedTimer>();
@@ -1170,6 +1190,7 @@ void Assistant::stop() {
   m_sentences.reset();
   m_streamText.clear();
   m_llm->cancel();
+  if (m_gui) m_gui->cancel();
   m_pendingCalls.clear();
   m_thinking = false;
   m_transcribing = false;
@@ -1747,6 +1768,7 @@ void Assistant::diagnose(std::function<void(QString)> done) {
 // --- tools -----------------------------------------------------------------------
 
 void Assistant::registerTools() {
+  registerGuiTools();
   using namespace schema;
   const QString home = QDir::homePath();
 
@@ -2270,40 +2292,17 @@ void Assistant::registerTools() {
              {"query"}),
       Risk::Safe, "memory", nullptr, nullptr,
       [this](const QJsonObject &a, Tool::Done done) {
-        const QString query = a.value("query").toString();
-        const QDateTime now = QDateTime::currentDateTime();
-        QJsonArray memories;
-        for (const MemoryRecord &r : m_store->search(query, now, 12)) {
-          QJsonObject item{{"id", r.id},
-                           {"when", when(r.started)},
-                           {"app", r.app},
-                           {"title", r.title},
-                           {"pinned", r.pinned}};
-          if (!r.summary.isEmpty())
-            item.insert("summary", r.summary);
-          if (!r.urls.isEmpty())
-            item.insert("urls", r.urls);
-          QJsonArray refs;
-          for (const Artifact &artifact : m_store->artifactsFor(r.id))
-            refs.append(artifact.value);
-          if (!refs.isEmpty())
-            item.insert("references", refs);
-          memories.append(item);
-        }
-        const TimeRange range = parseTimeRange(query, now);
-        QJsonArray artifacts;
-        for (const Artifact &artifact :
-             m_store->artifacts(range.rest, range.valid ? range.from : QDateTime(),
-                                range.valid ? range.to : QDateTime(), 12))
-          artifacts.append(QJsonObject{{"kind", artifact.kind},
-                                       {"value", artifact.value},
-                                       {"title", artifact.title},
-                                       {"lastSeen", when(artifact.lastSeen)}});
-        // Titles and summaries are text other people wrote.
+        auto fast = m_llm->config();
+        fast.model = m_settings->string("llm.fastModel");
         m_turnTainted = true;
-        done(ok({{"memories", memories},
-                 {"references", artifacts},
-                 {"screenMemory", m_memory->status()}}));
+        m_retrieval->search(a.value("query").toString(), m_summary + " " + m_turnText,
+                            fast, m_settings->flag("developer.debug"), [this, done](QJsonObject result) {
+          m_memoryAnswer = true;
+          for (auto item : result.value("memories").toArray())
+            for (auto id : item.toObject().value("evidence").toArray()) m_turnEvidence.insert(id.toString());
+          result.insert("answer_rule", "Cite remembered claims with [memory:ID], [fact:ID] or [artifact:ID], using only retrieved evidence IDs.");
+          done(result);
+        });
       }});
   m_tools.add(Tool{
       "memory.note",
@@ -2324,6 +2323,23 @@ void Assistant::registerTools() {
           m_store->addArtifact(artifact);
         }
         done(id ? ok({{"id", id}}) : fail("Memory is unavailable."));
+      }});
+  m_tools.add(Tool{
+      "memory.remember", "Store an explicit user fact or decision with a stable subject. "
+      "Use the same subject to update a previous fact; retain its history. Never infer facts from arbitrary screen text.",
+      object({{"subject", string("Stable fact key, e.g. Nala primary TTS", 200)},
+              {"text", string("User's explicit fact or decision", 2000)},
+              {"category", oneOf("Fact type", {"preference", "project_fact", "configuration", "decision", "goal", "workflow", "reference"})}},
+             {"subject", "text", "category"}), Risk::Low, "memory", nullptr, nullptr,
+      [this](const QJsonObject &a, Tool::Done done) {
+        MemoryRecord record;
+        record.started = record.lastSeen = QDateTime::currentDateTime();
+        record.source = "agent"; record.app = "nala";
+        record.title = a.value("subject").toString(); record.summary = a.value("text").toString();
+        const auto id = m_store->insert(record);
+        const auto fact = m_store->rememberFact(id, record.title, a.value("category").toString(), record.summary);
+        if (!fact && id) m_store->forgetOne(id);
+        done(fact ? ok({{"memory_id", id}, {"fact_id", fact}}) : fail("Could not store the fact."));
       }});
   m_tools.add(Tool{
       "memory.pin", "Keep a memory permanently, by id.",

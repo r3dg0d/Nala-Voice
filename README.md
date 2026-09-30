@@ -107,6 +107,7 @@ nala ask open discord       # as if you had said it
 nala stop                   # stop talking / thinking / acting
 nala memory pause 60        # pause screen memory (minutes; omit for "until resumed")
 nala memory resume
+nala memory search --debug "Rust search engine yesterday" # ranked evidence
 nala memory status          # works without the companion (same oneshot path as doctor)
 nala memory clear screen    # forget screen history (notes and pinned memories stay)
 nala timeline               # the memory window
@@ -205,10 +206,11 @@ missing.
 | Fish Speech voice, streamed, interruptible, with a text fallback | implemented (tested against its API; see [docs/AI.md](docs/AI.md)) |
 | Per-stage latency timing, `nala latency`, `nala benchmark`, `nala doctor` | implemented |
 | Speech bubble, yes/no confirmation card, listening meter | implemented |
-| Computer use: windows, apps, files, browser, mouse and keyboard, shell | implemented; mouse/keyboard experimental |
+| Computer use: windows, apps, files, browser, mouse and keyboard, shell | named target grounding, refinement and verification implemented; experimental ([computer use](docs/computer-use.md)) |
 | Screen memory with privacy gate, dedup, retention, storage cap, timeline | implemented |
 | Model-written memory descriptions and a vision privacy check | experimental |
-| Semantic (embedding) search, audio-in models, echo cancellation | planned |
+| Hybrid FTS/dense search, provenance facts and entity associations | implemented; local backends optional ([semantic search](docs/semantic-search.md), [memory](docs/memory.md)) |
+| Audio-in models, echo cancellation | planned |
 
 **Say it** (or `nala ask` it):
 
@@ -216,6 +218,7 @@ missing.
 - "Explain how Nix flakes pin their inputs." — the main model. "Tell me a joke." — the fast one.
 - "Use the fast model." / "Use the smart model for this." / "Switch back to automatic model selection."
 - "Hey Nala, open Discord." / "Close all windows." / "Open settings."
+- "Click the export button." — marked visual refinement, confirmation, then verification.
 - "Stop." / "Never mind." — interrupts speech, thinking and actions. Tapping her works too.
 - "Pause screen memory." / "Pause memory for one hour." / "Turn screen recording back on."
 - "Forget the last five minutes." / "Keep this memory." / "Never record this app."
@@ -262,7 +265,8 @@ command.
 More: [architecture](docs/ARCHITECTURE.md) · [models](docs/models.md) ·
 [voice pipeline](docs/voice-pipeline.md) · [tools](docs/tools.md) ·
 [AI setup](docs/AI.md) · [NixOS](docs/nixos.md) · [wake word](docs/WAKEWORD.md) ·
-[memory](docs/MEMORY.md) · [privacy](docs/PRIVACY.md) ·
+[screen memory](docs/MEMORY.md) · [durable memory](docs/memory.md) ·
+[semantic search](docs/semantic-search.md) · [computer use](docs/computer-use.md) · [privacy](docs/PRIVACY.md) ·
 [troubleshooting](docs/troubleshooting.md) · [development](docs/DEVELOPMENT.md) ·
 [handoff notes](HANDOFF.md)
 

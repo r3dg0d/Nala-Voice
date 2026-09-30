@@ -10,6 +10,14 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.4.0 — 2026-09-30
+
+- Add named-target, closed-loop GUI grounding with cropped observations, cursor landmarks, normalized coordinates, bounded refinement, fresh retry confirmations and post-action verification.
+- Add asynchronous local embeddings, hybrid FTS/dense/artifact/entity/fact retrieval, optional contextual rewriting and reranking, and `memory search --debug`.
+- Add transactional provenance-aware durable facts, entity associations, history/conflicts, dependency invalidation and complete forgetting cascades.
+- Keep deterministic commands fast and memory answers buffered for evidence-ID checks. Embeddings remain opt-in; screen recording and automatic durable extraction remain off by default.
+- Add offline fake-backend tests and project-local retrieval/vision benchmarks. Detect NixOS's ydotool daemon socket for input helpers.
+
 ## 1.3.10 — 2026-09-30
 
 Microphone recovery that actually works on PipeWire, found by testing with a real

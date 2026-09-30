@@ -126,6 +126,7 @@ QString Identity::systemPrompt(const QDateTime &now,
               "screenshots.")
               .arg(name, manner, length);
   }
+  who += "\nFor GUI controls prefer computer.locate_and_click or computer.locate_and_type with a target description, never ask the user for coordinates. Use apps.launch or window tools for known apps/windows. Only use coordinate tools when coordinates come from an observation. Never enter secrets using visual guessing.";
   return who + QStringLiteral("\n\nIt is %1. Screen memory is %2. You %3 see "
                               "images.")
                    .arg(QLocale().toString(now, QStringLiteral(

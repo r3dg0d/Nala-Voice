@@ -33,7 +33,7 @@
       packages = forAll (pkgs: {
         default = pkgs.stdenv.mkDerivation {
           pname = "nala";
-          version = "1.3.10";
+          version = "1.4.0";
           src = self;
           nativeBuildInputs = with pkgs; [ cmake ninja qt6.wrapQtAppsHook ];
           buildInputs = qtDeps pkgs;
@@ -47,6 +47,10 @@
               QT_PLUGIN_PATH=${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix} \
               QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix} \
               HYPRLAND_INSTANCE_SIGNATURE= ./nala-model-tests
+            QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
+              QT_PLUGIN_PATH=${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix} \
+              QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix} \
+              HYPRLAND_INSTANCE_SIGNATURE= ./nala-agent-tests
             QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
               QT_PLUGIN_PATH=${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix} \
               QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix} \

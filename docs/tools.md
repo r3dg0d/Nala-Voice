@@ -37,6 +37,10 @@ part about Nix") are deliberately *not* matched; they go to the model.
 | `system.run_safe` | one allow-listed inspection command | low |
 | `volume.get` | current volume | safe |
 | `window.*`, `apps.*`, `computer.*`, `files.*`, `browser.open`, `memory.*`, `nala.*` | see [ARCHITECTURE.md](ARCHITECTURE.md) | varies |
+| `computer.locate_and_click` | target description → coarse observation, crop, marked refinement, click, verify; retries confirm again | high |
+| `computer.locate_and_type` | visually focus a field, verify focus, type ordinary text and observe; secrets refused | high |
+| `memory.search` | hybrid ranked evidence, time filters, optional local backends | safe |
+| `memory.remember` | explicit fact with stable subject and provenance; updates preserve history | low |
 | `shell.run` | arbitrary commands; **off by default** (`agent.shell`) and always asks | high |
 
 `system.run_safe` accepts only these programs, with plain flags and nothing
@@ -93,3 +97,7 @@ test for it in `tests/model_tests.cpp`; add a fast-path pattern in
 "nothing leaves your machine". It is not implemented rather than added as an
 opt-out; if you want it, it should be a tool you switch on and configure with an
 explicit location.
+
+Named clicks also have a fast path. Coordinate screenshot/click/move tools stay
+available for debugging. See [computer-use.md](computer-use.md) and
+[semantic-search.md](semantic-search.md) for settings and limits.

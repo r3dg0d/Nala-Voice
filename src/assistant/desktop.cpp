@@ -381,6 +381,12 @@ Result run(const QString &program, const QStringList &args, int timeoutMs,
     return result;
   }
   QProcess process;
+  if (program == "ydotool" && qEnvironmentVariableIsEmpty("YDOTOOL_SOCKET") &&
+      QFileInfo::exists("/run/ydotoold/socket")) {
+    auto env = QProcessEnvironment::systemEnvironment();
+    env.insert("YDOTOOL_SOCKET", "/run/ydotoold/socket");
+    process.setProcessEnvironment(env);
+  }
   process.start(path, args);
   if (!process.waitForStarted(2000)) {
     result.error = QStringLiteral("%1 did not start").arg(program);
@@ -420,7 +426,7 @@ Tools detectTools() {
       "XDG_RUNTIME_DIR", QStringLiteral("/run/user/%1").arg(::getuid()));
   for (const QString &socket :
        {env.value("YDOTOOL_SOCKET"), runtime + "/.ydotool_socket",
-        QStringLiteral("/tmp/.ydotool_socket")})
+        QStringLiteral("/tmp/.ydotool_socket"), QStringLiteral("/run/ydotoold/socket")})
     if (!socket.isEmpty() && QFileInfo::exists(socket))
       tools.ydotoold = true;
   return tools;

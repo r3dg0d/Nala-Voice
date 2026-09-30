@@ -74,6 +74,8 @@ an allow-listed set of these settings between machines.
 | `policy.*` | Pure rules: risk → allow/confirm; file path policy; the screen-memory privacy gate; time-phrase parsing. |
 | `desktop.*` | Hyprland IPC (windows, monitors, cursor), `.desktop` application index and launch, `wtype`/`ydotool` input, `grim` capture. Never uses a shell. |
 | `memory.*` | SQLite store (FTS5 when available), artifacts, retention, perceptual hash, artifact extraction. |
+| `guigrounder.*`, `assistant_gui.cpp` | Bounded marked visual grounding, crop transforms, privacy/focus checks, confirmed actions and verification; injected desktop ports for offline tests. |
+| `retrieval.*`, `semantic.*`, `memory_semantic.cpp` | Async local embedding/rewrite/rerank calls, SQLite migrations, vector scoring, RRF, durable facts, entity links and provenance checks. |
 | `screenmemory.*` | The capture pipeline, pause/resume, retention timer, optional vision judging and descriptions. |
 | `assistant.*` | Orchestration: state machine, fast actions, the agent loop, confirmations, speaking, tool implementations, diagnostics, timeline data. |
 | `assistant_models.cpp` | The local-model layer: choosing main / fast / speed per request, fallback and retry, GPU preparation, streaming the answer into the voice, conversation summary, timing, and the `nala model`, `stt`, `tts`, `benchmark` commands. See [models.md](models.md). |
@@ -134,3 +136,15 @@ purpose.
 Only the user's request and the final answer are kept in history, not the
 tool traffic, so stale tool results are not trusted later and the context
 stays small.
+
+## Grounding and retrieval
+
+Single named clicks reach `computer.locate_and_click` directly through the
+router, then use a dedicated vision client. App/window tools stay deterministic.
+The GUI loop owns its deadline and cancellation; retries require confirmation.
+Memory intent alone invokes hybrid retrieval, with optional fast query rewriting.
+Memory answers wait for evidence ID validation before speech. Backend indexing
+is asynchronous and uses the existing SQL connection on its owning thread;
+in-process cosine scoring currently runs there too. No mandatory ML libraries
+or databases were added. See [computer-use.md](computer-use.md),
+[semantic-search.md](semantic-search.md) and [memory.md](memory.md).

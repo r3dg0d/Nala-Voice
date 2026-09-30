@@ -61,26 +61,27 @@ Artifact readArtifact(const QSqlQuery &q) {
 // Words that carry no search meaning in "what was that thing I looked at".
 QStringList contentWords(const QString &text) {
   static const QSet<QString> stop = {
-      "a",        "an",      "the",     "i",       "me",       "my",
-      "mine",     "you",     "your",    "we",      "our",      "it",
-      "its",      "is",      "was",     "were",    "are",      "be",
-      "been",     "am",      "what",    "which",   "who",      "where",
-      "when",     "why",     "how",     "that",    "this",     "those",
-      "these",    "there",   "did",     "do",      "does",     "done",
-      "didn't",   "don't",   "have",    "had",     "has",      "at",
-      "on",       "in",      "of",      "for",     "to",       "from",
-      "with",     "about",   "into",    "and",     "or",       "but",
-      "look",     "looked",  "looking", "see",     "saw",      "seen",
-      "open",     "opened",  "working", "work",    "worked",   "doing",
-      "show",     "find",    "remember", "again",  "already",  "thing",
-      "things",   "something", "stuff",  "nala",   "hey",      "please",
-      "can",      "could",   "would",   "should",  "will",     "just",
-      "any",      "some",    "all",     "one",     "up",       "then",
-      "earlier",  "ago",     "recently", "time",   "last",     "yesterday",
-      "today",    "tell",    "anything", "if",     "so",       "get",
-      "got",      "use",     "used",    "using",   "made",     "make",
-      "back",     "go",      "went",    "going",   "did",      "on"};
-  static const QRegularExpression split(QStringLiteral(R"([^\p{L}\p{N}_.+#-]+)"));
+      "a",       "an",        "the",      "i",      "me",      "my",
+      "mine",    "you",       "your",     "we",     "our",     "it",
+      "its",     "is",        "was",      "were",   "are",     "be",
+      "been",    "am",        "what",     "which",  "who",     "where",
+      "when",    "why",       "how",      "that",   "this",    "those",
+      "these",   "there",     "did",      "do",     "does",    "done",
+      "didn't",  "don't",     "have",     "had",    "has",     "at",
+      "on",      "in",        "of",       "for",    "to",      "from",
+      "with",    "about",     "into",     "and",    "or",      "but",
+      "look",    "looked",    "looking",  "see",    "saw",     "seen",
+      "open",    "opened",    "working",  "work",   "worked",  "doing",
+      "show",    "find",      "remember", "again",  "already", "thing",
+      "things",  "something", "stuff",    "nala",   "hey",     "please",
+      "can",     "could",     "would",    "should", "will",    "just",
+      "any",     "some",      "all",      "one",    "up",      "then",
+      "earlier", "ago",       "recently", "time",   "last",    "yesterday",
+      "today",   "tell",      "anything", "if",     "so",      "get",
+      "got",     "use",       "used",     "using",  "made",    "make",
+      "back",    "go",        "went",     "going",  "did",     "on"};
+  static const QRegularExpression split(
+      QStringLiteral(R"([^\p{L}\p{N}_.+#-]+)"));
   QStringList words;
   for (QString word : text.toLower().split(split, Qt::SkipEmptyParts)) {
     while (word.endsWith('.') || word.endsWith('-'))
@@ -122,21 +123,26 @@ QVariantMap MemoryRecord::toVariant() const {
 }
 
 QVariantMap Artifact::toVariant() const {
-  return {{"id", id},       {"kind", kind},           {"value", value},
-          {"title", title}, {"firstSeen", firstSeen}, {"lastSeen", lastSeen},
+  return {{"id", id},
+          {"kind", kind},
+          {"value", value},
+          {"title", title},
+          {"firstSeen", firstSeen},
+          {"lastSeen", lastSeen},
           {"memoryId", memoryId}};
 }
 
-// --- hashing -------------------------------------------------------------------
+// --- hashing
+// -------------------------------------------------------------------
 
 quint64 differenceHash(const QImage &image) {
   if (image.isNull())
     return 0;
   // 9x8 greyscale: each bit says whether a cell is brighter than the one to
   // its right.
-  const QImage small = image.convertToFormat(QImage::Format_Grayscale8)
-                           .scaled(9, 8, Qt::IgnoreAspectRatio,
-                                   Qt::SmoothTransformation);
+  const QImage small =
+      image.convertToFormat(QImage::Format_Grayscale8)
+          .scaled(9, 8, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
   quint64 hash = 0;
   int bit = 0;
   for (int y = 0; y < 8; ++y) {
@@ -156,7 +162,8 @@ QVector<Artifact> findArtifacts(const QString &text) {
   QVector<Artifact> found;
   QSet<QString> seen;
   const auto add = [&](const QString &kind, QString value) {
-    while (!value.isEmpty() && QStringLiteral(".,;:)]}'\"").contains(value.back()))
+    while (!value.isEmpty() &&
+           QStringLiteral(".,;:)]}'\"").contains(value.back()))
       value.chop(1);
     if (value.isEmpty() || seen.contains(kind + value))
       return;
@@ -194,7 +201,8 @@ QVector<Artifact> findArtifacts(const QString &text) {
   return found;
 }
 
-// --- store ---------------------------------------------------------------------
+// --- store
+// ---------------------------------------------------------------------
 
 MemoryStore::MemoryStore()
     : m_connection(QStringLiteral("nala-memory-") +
@@ -220,8 +228,8 @@ bool MemoryStore::open(const QString &dir, QString *error) {
   QFile::setPermissions(m_dir, kPrivateDir);
   QFile::setPermissions(shotsDir(), kPrivateDir);
 
-  QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
-                                              m_connection);
+  QSqlDatabase db =
+      QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_connection);
   db.setDatabaseName(m_dir + "/memory.db");
   if (!db.open()) {
     if (error)
@@ -230,6 +238,12 @@ bool MemoryStore::open(const QString &dir, QString *error) {
   }
   QFile::setPermissions(m_dir + "/memory.db", kPrivateFile);
 
+  if (schemaVersion() > 1) {
+    if (error)
+      *error = "Memory database is newer than this Nala version";
+    db.close();
+    return false;
+  }
   QSqlQuery q(db);
   const QStringList schema = {
       "PRAGMA journal_mode=WAL",
@@ -254,12 +268,13 @@ bool MemoryStore::open(const QString &dir, QString *error) {
       return false;
     }
 
+  q.exec("SELECT name FROM sqlite_master WHERE name='memories_fts'");
+  const bool hadFts = q.next();
   // Full-text search where SQLite was built with it; plain LIKE otherwise.
-  m_fts = q.exec(
-      "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5("
-      " title, app, activity, summary, keywords, urls,"
-      " content='memories', content_rowid='id',"
-      " tokenize='unicode61 remove_diacritics 2')");
+  m_fts = q.exec("CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5("
+                 " title, app, activity, summary, keywords, urls,"
+                 " content='memories', content_rowid='id',"
+                 " tokenize='unicode61 remove_diacritics 2')");
   if (m_fts) {
     const QString cols = "title, app, activity, summary, keywords, urls";
     const QString news =
@@ -283,6 +298,11 @@ bool MemoryStore::open(const QString &dir, QString *error) {
                "rowid, %1) VALUES (new.id, %3); END")
                .arg(cols, olds, news));
   }
+  if (m_fts && !hadFts &&
+      !q.exec("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')"))
+    m_fts = false;
+  if (!migrate(error))
+    return false;
   m_open = true;
   return true;
 }
@@ -310,10 +330,31 @@ qint64 MemoryStore::insert(MemoryRecord r) {
   q.addBindValue(r.source);
   if (!q.exec())
     return 0;
-  return q.lastInsertId().toLongLong();
+  const qint64 id = q.lastInsertId().toLongLong();
+  if (r.source == "note" || r.pinned) {
+    QString subject = semantic::hash(r.summary.simplified().toLower());
+    const auto match =
+        QRegularExpression("^(.{3,80}?) (?:now )?(?:uses|is|=|prefers) (.+)$",
+                           QRegularExpression::CaseInsensitiveOption)
+            .match(r.summary);
+    if (match.hasMatch())
+      subject = match.captured(1).simplified().toLower();
+    rememberFact(id, subject, r.pinned ? "reference" : "note", r.summary);
+  }
+  if (!r.app.isEmpty())
+    associate(id, "application", r.app);
+  const QRegularExpression models("\\b(?:Qwen[\\w.:-]*|Gemma[\\w.:-]*|Llama["
+                                  "\\w.:-]*|Whisper|Fish Speech)\\b",
+                                  QRegularExpression::CaseInsensitiveOption);
+  auto mentions = models.globalMatch(r.title + " " + r.summary);
+  while (mentions.hasNext())
+    associate(id, "model", mentions.next().captured(0));
+  return id;
 }
 
 void MemoryStore::touch(qint64 id, const QDateTime &seen) {
+  if (!m_open)
+    return;
   QSqlQuery q(QSqlDatabase::database(m_connection));
   q.prepare("UPDATE memories SET last_seen = ?, frames = frames + 1 "
             "WHERE id = ?");
@@ -325,6 +366,8 @@ void MemoryStore::touch(qint64 id, const QDateTime &seen) {
 void MemoryStore::describe(qint64 id, const QString &activity,
                            const QString &summary, const QString &keywords,
                            const QString &urls) {
+  if (!m_open)
+    return;
   QSqlQuery q(QSqlDatabase::database(m_connection));
   q.prepare("UPDATE memories SET activity = ?, summary = ?, keywords = ?, "
             "urls = ? WHERE id = ?");
@@ -337,14 +380,24 @@ void MemoryStore::describe(qint64 id, const QString &activity,
 }
 
 bool MemoryStore::setPinned(qint64 id, bool pinned) {
+  if (!m_open)
+    return false;
   QSqlQuery q(QSqlDatabase::database(m_connection));
   q.prepare("UPDATE memories SET pinned = ? WHERE id = ?");
   q.addBindValue(pinned ? 1 : 0);
   q.addBindValue(id);
-  return q.exec() && q.numRowsAffected() > 0;
+  const bool ok = q.exec() && q.numRowsAffected() > 0;
+  if (ok && pinned) {
+    const auto record = get(id);
+    rememberFact(id, semantic::hash(record.summary.simplified().toLower()),
+                 "reference", record.summary);
+  }
+  return ok;
 }
 
 MemoryRecord MemoryStore::get(qint64 id) const {
+  if (!m_open)
+    return {};
   QSqlQuery q(QSqlDatabase::database(m_connection));
   q.prepare(QStringLiteral("SELECT %1 FROM memories WHERE id = ?")
                 .arg(QLatin1String(kColumns)));
@@ -355,6 +408,8 @@ MemoryRecord MemoryStore::get(qint64 id) const {
 }
 
 MemoryRecord MemoryStore::latest() const {
+  if (!m_open)
+    return {};
   QSqlQuery q(QSqlDatabase::database(m_connection));
   if (q.exec(QStringLiteral("SELECT %1 FROM memories ORDER BY last_seen DESC "
                             "LIMIT 1")
@@ -378,56 +433,56 @@ void MemoryStore::removeShot(const QString &path) {
 int MemoryStore::forget(const QDateTime &from, const QDateTime &to) {
   if (!m_open)
     return 0;
-  QSqlDatabase db = QSqlDatabase::database(m_connection);
-  QSqlQuery q(db);
-  q.prepare("SELECT id, shot_path FROM memories WHERE last_seen >= ? AND "
-            "started < ?");
+  QSqlQuery q(QSqlDatabase::database(m_connection));
+  q.prepare("SELECT id FROM memories WHERE last_seen >= ? AND started < ?");
   q.addBindValue(ms(from));
   q.addBindValue(ms(to));
   QVector<qint64> ids;
   if (q.exec())
-    while (q.next()) {
+    while (q.next())
       ids << q.value(0).toLongLong();
-      removeShot(q.value(1).toString());
-    }
-  db.transaction();
-  QSqlQuery del(db);
-  del.prepare("DELETE FROM memories WHERE id = ?");
-  QSqlQuery art(db);
-  art.prepare("DELETE FROM artifacts WHERE memory_id = ?");
-  for (qint64 id : ids) {
-    del.addBindValue(id);
-    del.exec();
-    art.addBindValue(id);
-    art.exec();
-  }
-  // Anything last seen in that window goes too, even if it was first seen
-  // before it.
-  QSqlQuery span(db);
-  span.prepare("DELETE FROM artifacts WHERE last_seen >= ? AND last_seen < ?");
-  span.addBindValue(ms(from));
-  span.addBindValue(ms(to));
-  span.exec();
-  db.commit();
-  return int(ids.size());
+  int removed = 0;
+  for (qint64 id : ids)
+    removed += forgetOne(id);
+  q.prepare("DELETE FROM artifacts WHERE last_seen >= ? AND last_seen < ?");
+  q.addBindValue(ms(from));
+  q.addBindValue(ms(to));
+  q.exec();
+  return removed;
 }
 
 int MemoryStore::forgetOne(qint64 id) {
   const MemoryRecord record = get(id);
   if (record.id == 0)
     return 0;
-  removeShot(record.shotPath);
   QSqlDatabase db = QSqlDatabase::database(m_connection);
+  if (!db.transaction())
+    return 0;
   QSqlQuery q(db);
   q.prepare("DELETE FROM artifacts WHERE memory_id = ?");
   q.addBindValue(id);
-  q.exec();
+  if (!q.exec()) {
+    db.rollback();
+    return 0;
+  }
   q.prepare("DELETE FROM memories WHERE id = ?");
   q.addBindValue(id);
-  return q.exec() ? q.numRowsAffected() : 0;
+  if (!q.exec()) {
+    db.rollback();
+    return 0;
+  }
+  const int removed = q.numRowsAffected();
+  if (!db.commit()) {
+    db.rollback();
+    return 0;
+  }
+  removeShot(record.shotPath);
+  return removed;
 }
 
 int MemoryStore::dropScreenshotsBefore(const QDateTime &before) {
+  if (!m_open)
+    return 0;
   QSqlDatabase db = QSqlDatabase::database(m_connection);
   QSqlQuery q(db);
   q.prepare("SELECT id, shot_path FROM memories WHERE shot_path != '' AND "
@@ -455,8 +510,9 @@ int MemoryStore::forgetSource(const QString &source, bool includePinned) {
   if (!m_open)
     return 0;
   QSqlQuery q(QSqlDatabase::database(m_connection));
-  q.prepare(includePinned ? "SELECT id FROM memories WHERE source = ?"
-                          : "SELECT id FROM memories WHERE source = ? AND pinned = 0");
+  q.prepare(includePinned
+                ? "SELECT id FROM memories WHERE source = ?"
+                : "SELECT id FROM memories WHERE source = ? AND pinned = 0");
   q.addBindValue(source);
   QVector<qint64> ids;
   if (q.exec())
@@ -472,8 +528,10 @@ int MemoryStore::countSource(const QString &source, bool pinnedOnly) const {
   if (!m_open)
     return 0;
   QSqlQuery q(QSqlDatabase::database(m_connection));
-  q.prepare(pinnedOnly ? "SELECT COUNT(*) FROM memories WHERE source = ? AND pinned = 1"
-                       : "SELECT COUNT(*) FROM memories WHERE source = ?");
+  q.prepare(
+      pinnedOnly
+          ? "SELECT COUNT(*) FROM memories WHERE source = ? AND pinned = 1"
+          : "SELECT COUNT(*) FROM memories WHERE source = ?");
   q.addBindValue(source);
   return q.exec() && q.next() ? q.value(0).toInt() : 0;
 }
@@ -486,7 +544,8 @@ MemoryStore::Sweep MemoryStore::enforce(int shotDays, int rowDays,
     return sweep;
   const qint64 before = storageBytes();
   if (shotMinutes > 0)
-    sweep.screenshots += dropScreenshotsBefore(now.addSecs(-60LL * shotMinutes));
+    sweep.screenshots +=
+        dropScreenshotsBefore(now.addSecs(-60LL * shotMinutes));
   else if (shotDays > 0)
     sweep.screenshots += dropScreenshotsBefore(now.addDays(-shotDays));
 
@@ -546,6 +605,8 @@ qint64 MemoryStore::storageBytes() const {
 }
 
 int MemoryStore::count() const {
+  if (!m_open)
+    return 0;
   QSqlQuery q(QSqlDatabase::database(m_connection));
   if (q.exec("SELECT COUNT(*) FROM memories") && q.next())
     return q.value(0).toInt();
@@ -575,10 +636,9 @@ QVector<MemoryRecord> MemoryStore::search(const QString &query,
                              "ON m.id = f.rowid WHERE memories_fts MATCH ?%2 "
                              "ORDER BY bm25(memories_fts), m.last_seen DESC "
                              "LIMIT ?")
-                  .arg(QString::fromLatin1(kColumns)
-                           .replace(QRegularExpression(QStringLiteral(
-                                        R"(\b(\w+)\b)")),
-                                    QStringLiteral("m.\\1")),
+                  .arg(QString::fromLatin1(kColumns).replace(
+                           QRegularExpression(QStringLiteral(R"(\b(\w+)\b)")),
+                           QStringLiteral("m.\\1")),
                        when));
     q.addBindValue(ftsQuery(words));
   } else {
@@ -589,10 +649,9 @@ QVector<MemoryRecord> MemoryStore::search(const QString &query,
                               "m.app LIKE ?)");
     q.prepare(QStringLiteral("SELECT %1 FROM memories m WHERE (%2)%3 "
                              "ORDER BY m.last_seen DESC LIMIT ?")
-                  .arg(QString::fromLatin1(kColumns)
-                           .replace(QRegularExpression(QStringLiteral(
-                                        R"(\b(\w+)\b)")),
-                                    QStringLiteral("m.\\1")),
+                  .arg(QString::fromLatin1(kColumns).replace(
+                           QRegularExpression(QStringLiteral(R"(\b(\w+)\b)")),
+                           QStringLiteral("m.\\1")),
                        likes.join(" OR "), when));
     for (const QString &word : words)
       for (int i = 0; i < 5; ++i)
@@ -630,16 +689,17 @@ QVector<MemoryRecord> MemoryStore::list(const QDateTime &from,
     binds << app;
   }
   if (!text.trimmed().isEmpty()) {
-    where << "(title LIKE ? OR summary LIKE ? OR keywords LIKE ? OR urls LIKE ?)";
+    where
+        << "(title LIKE ? OR summary LIKE ? OR keywords LIKE ? OR urls LIKE ?)";
     for (int i = 0; i < 4; ++i)
       binds << "%" + text.trimmed() + "%";
   }
   QSqlQuery q(QSqlDatabase::database(m_connection));
-  q.prepare(QStringLiteral("SELECT %1 FROM memories%2 ORDER BY started DESC "
-                           "LIMIT ?")
-                .arg(QLatin1String(kColumns),
-                     where.isEmpty() ? QString()
-                                     : " WHERE " + where.join(" AND ")));
+  q.prepare(
+      QStringLiteral("SELECT %1 FROM memories%2 ORDER BY started DESC "
+                     "LIMIT ?")
+          .arg(QLatin1String(kColumns),
+               where.isEmpty() ? QString() : " WHERE " + where.join(" AND ")));
   for (const QVariant &bind : binds)
     q.addBindValue(bind);
   q.addBindValue(limit);
@@ -676,13 +736,17 @@ qint64 MemoryStore::addArtifact(const Artifact &a) {
   q.addBindValue(a.firstSeen.isValid() ? ms(a.firstSeen) : seen);
   q.addBindValue(seen);
   q.addBindValue(a.memoryId);
-  return q.exec() ? q.lastInsertId().toLongLong() : 0;
+  if (!q.exec())
+    return 0;
+  const qint64 id = q.lastInsertId().toLongLong();
+  if (a.memoryId > 0)
+    associate(a.memoryId, a.kind, a.value);
+  return id;
 }
 
 QVector<Artifact> MemoryStore::artifacts(const QString &text,
                                          const QDateTime &from,
-                                         const QDateTime &to,
-                                         int limit) const {
+                                         const QDateTime &to, int limit) const {
   QVector<Artifact> out;
   if (!m_open)
     return out;
@@ -706,11 +770,11 @@ QVector<Artifact> MemoryStore::artifacts(const QString &text,
     binds << ms(to);
   }
   QSqlQuery q(QSqlDatabase::database(m_connection));
-  q.prepare(QStringLiteral("SELECT id, kind, value, title, first_seen, "
-                           "last_seen, memory_id FROM artifacts%1 ORDER BY "
-                           "last_seen DESC LIMIT ?")
-                .arg(where.isEmpty() ? QString()
-                                     : " WHERE " + where.join(" AND ")));
+  q.prepare(
+      QStringLiteral("SELECT id, kind, value, title, first_seen, "
+                     "last_seen, memory_id FROM artifacts%1 ORDER BY "
+                     "last_seen DESC LIMIT ?")
+          .arg(where.isEmpty() ? QString() : " WHERE " + where.join(" AND ")));
   for (const QVariant &bind : binds)
     q.addBindValue(bind);
   q.addBindValue(limit);

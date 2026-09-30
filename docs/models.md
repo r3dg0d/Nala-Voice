@@ -120,7 +120,11 @@ role. An explicit `llm.mode` is your choice and is left alone. Nothing here is
 specific to a particular card; it reads what `nvidia-smi` reports.
 
 Screen memory can describe pictures with a different model
-(`llm.visionModel`) so a large vision model need not stay loaded.
+(`llm.visionModel`) so a large vision model need not stay loaded. The named
+GUI tools also use a separate client with that model; it need not be the
+conversational model. Gemma 4 names are recognized by the fallback capability
+heuristic; server-reported capabilities take precedence. See
+[computer-use.md](computer-use.md) and [semantic-search.md](semantic-search.md).
 
 ## Backends
 

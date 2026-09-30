@@ -29,6 +29,8 @@ class TtsChain;
 class Microphone;
 class QProcess;
 class ScreenMemory;
+class GuiGrounder;
+class Retrieval;
 class Speaker;
 class SpeechToText;
 class WhisperCli;
@@ -313,6 +315,8 @@ private:
   // Volume, media, time, clipboard, notifications, screenshots, video
   // recording and a short list of read-only commands (assistant_tools.cpp).
   void registerSystemTools();
+  void registerGuiTools();
+  void runGuiTarget(const QJsonObject &args, Tool::Done done);
   // Runs a router action that belongs to them; false if it is not one.
   bool runSystemFast(const Route &route);
   // Says a confirmation, aloud only if tts.confirmCommands allows it.
@@ -383,6 +387,10 @@ private:
   QNetworkAccessManager m_network;
   LlmClient *m_llm = nullptr;
   LlmClient *m_memoryLlm = nullptr;
+  GuiGrounder *m_gui = nullptr;
+  Retrieval *m_retrieval = nullptr;
+  QSet<QString> m_turnEvidence;
+  bool m_memoryAnswer = false;
   LlmClient *m_summaryLlm = nullptr;  // folds old turns into a summary
   LlmClient *m_benchLlm = nullptr;    // `nala benchmark`, never the live one
   Microphone *m_mic = nullptr;

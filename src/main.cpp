@@ -162,9 +162,10 @@ int main(int argc, char **argv) {
       "scatter, dash, demo, rest, reset, quit; and for the assistant: "
       "listen, ask <words>, stop, doctor, timeline, setup, "
       "profile export|import <file>, wakeword <command> (see \"nala wakeword\"), "
-      "memory pause [minutes] | resume | status | clear screen [all], "
+      "memory search [--debug] <query> | pause [minutes] | resume | status | clear screen [all], "
       "model status|list|main <name>|fast <name>|speed <name>|mode <m>|thinking <t>|"
       "routing on|off|unload, stt status, tts status, latency, benchmark");
+  parser.setOptionsAfterPositionalArgumentsMode(QCommandLineParser::ParseAsPositionalArguments);
   parser.process(app);
 
   // Both capture modes drive the animation clock themselves, so they share the
@@ -320,7 +321,7 @@ int main(int argc, char **argv) {
       Assistant assistant(paths, Assistant::Mode::Oneshot);
 
       QString out;
-      // Memory commands are synchronous (settings + store); no network wait.
+      // Status/control are local; search waits only for its bounded optional backends.
       if (requested == "memory" || requested.startsWith("memory ")) {
         const QString args = requested == "memory"
                                  ? QString()

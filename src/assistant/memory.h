@@ -1,4 +1,5 @@
 #pragma once
+#include "semantic.h"
 #include <QDateTime>
 #include <QImage>
 #include <QString>
@@ -14,16 +15,16 @@ struct MemoryRecord {
   qint64 id = 0;
   QDateTime started;
   QDateTime lastSeen;
-  int frames = 1;          // near-identical captures folded into this one
-  QString app;             // window class
+  int frames = 1; // near-identical captures folded into this one
+  QString app;    // window class
   QString title;
-  QString activity;        // "coding", "browsing"... from description, if any
+  QString activity; // "coding", "browsing"... from description, if any
   QString summary;
   QString keywords;
-  QString urls;            // newline separated
-  QString shotPath;        // empty once the image has expired
+  QString urls;     // newline separated
+  QString shotPath; // empty once the image has expired
   qint64 shotBytes = 0;
-  quint64 hash = 0;        // perceptual hash of the image
+  quint64 hash = 0; // perceptual hash of the image
   bool pinned = false;
   QString source = QStringLiteral("screen"); // "screen", "agent" or "note"
 
@@ -115,10 +116,40 @@ public:
                               const QDateTime &to, int limit = 20) const;
   QVector<Artifact> artifactsFor(qint64 memoryId) const;
 
+  void setFeatures(bool durable, bool entities) {
+    m_durable = durable;
+    m_entities = entities;
+  }
+  bool addAlias(qint64 entityId, const QString &alias);
+  bool addFactDependency(qint64 factId, qint64 dependsOn);
+  int schemaVersion() const;
+  QString embeddingText(qint64 id) const;
+  QVector<float> cachedEmbedding(const QString &model,
+                                 const QString &hash) const;
+  QVector<qint64> pendingEmbeddings(const QString &model, int dimensions,
+                                    int limit = 8);
+  bool storeEmbedding(qint64 id, const QString &model, const QString &hash,
+                      const QVector<float> &vector);
+  void embeddingFailed(qint64 id);
+  QVector<RetrievalHit> hybrid(const QString &query, const QDateTime &now,
+                               const QVector<float> &vector,
+                               const QString &model, int lexicalK = 30,
+                               int denseK = 30, int rrfK = 60,
+                               int finalK = 10) const;
+  QJsonObject evidence(const RetrievalHit &hit, bool debug = false) const;
+  qint64 rememberFact(qint64 memoryId, const QString &subject,
+                      const QString &category, const QString &text,
+                      double confidence = 0.95);
+  QJsonArray facts(const QString &query = {}, bool history = false) const;
+  void associate(qint64 memoryId, const QString &kind, const QString &name);
+  QJsonArray entitiesFor(qint64 memoryId) const;
+
 private:
+  bool migrate(QString *error);
   void removeShot(const QString &path);
   QString m_dir;
   QString m_connection;
   bool m_open = false;
   bool m_fts = false;
+  bool m_durable = true, m_entities = true;
 };

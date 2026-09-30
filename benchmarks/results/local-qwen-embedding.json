@@ -1,0 +1,126 @@
+{
+    "dataset": "20 synthetic records, 8 labeled queries; no user memories",
+    "embedding": "qwen3-embedding:0.6b local Ollama",
+    "gui": [
+        {
+            "fixture": 0,
+            "initial_error_px": 50,
+            "refined_error_px": 0,
+            "refinements": 2,
+            "success": true
+        },
+        {
+            "fixture": 1,
+            "initial_error_px": 50,
+            "refined_error_px": 0,
+            "refinements": 2,
+            "success": true
+        },
+        {
+            "fixture": 2,
+            "initial_error_px": 50,
+            "refined_error_px": 0,
+            "refinements": 2,
+            "success": true
+        },
+        {
+            "fixture": 3,
+            "initial_error_px": 50,
+            "refined_error_px": 0,
+            "refinements": 2,
+            "success": true
+        },
+        {
+            "fixture": 4,
+            "initial_error_px": 50,
+            "refined_error_px": 0,
+            "refinements": 2,
+            "success": true
+        },
+        {
+            "fixture": 5,
+            "initial_error_px": 50,
+            "refined_error_px": 0,
+            "refinements": 2,
+            "success": true
+        }
+    ],
+    "gui_note": "Scripted predictions on synthetic screenshots; tests loop behavior, not real VLM accuracy. No live clicks.",
+    "index_ms": 1729,
+    "query_embedding_ms": [
+        13,
+        6,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+    ],
+    "retrieval": [
+        {
+            "mode": "FTS",
+            "mrr": 1,
+            "ndcg_at_5": 0.674936400073476,
+            "recall_at_5": 0.5833333333333333,
+            "retrieval_ms": [
+                1.477667,
+                0.279576,
+                0.276505,
+                0.256374,
+                0.26713,
+                0.203018,
+                0.243335,
+                0.20638
+            ]
+        },
+        {
+            "mode": "dense",
+            "mrr": 0.9166666666666666,
+            "ndcg_at_5": 0.8144961200129374,
+            "recall_at_5": 0.8333333333333334,
+            "retrieval_ms": [
+                2.220647,
+                2.157658,
+                2.157128,
+                2.126063,
+                2.174854,
+                2.09185,
+                2.110732,
+                2.080927
+            ]
+        },
+        {
+            "mode": "hybrid",
+            "mrr": 1,
+            "ndcg_at_5": 0.8515063588836704,
+            "recall_at_5": 0.8333333333333334,
+            "retrieval_ms": [
+                2.218092,
+                2.142405,
+                1.369505,
+                1.809698,
+                1.329583,
+                1.368625,
+                1.377033,
+                1.706858
+            ]
+        },
+        {
+            "mode": "hybrid_rerank_unavailable_fallback",
+            "mrr": 1,
+            "ndcg_at_5": 0.8515063588836704,
+            "recall_at_5": 0.8333333333333334,
+            "retrieval_ms": [
+                1.289972,
+                1.34084,
+                1.35991,
+                2.636238,
+                2.367629,
+                2.272832,
+                2.280183,
+                2.266995
+            ]
+        }
+    ]
+}

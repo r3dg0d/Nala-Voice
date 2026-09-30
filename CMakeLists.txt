@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Nala VERSION 1.3.10 LANGUAGES CXX)
+project(Nala VERSION 1.4.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -26,6 +26,8 @@ endif()
 # tests link exactly the code the app runs.
 qt_add_library(nala_assistant STATIC
   src/assistant/assistant.cpp src/assistant/assistant.h
+  src/assistant/guigrounder.cpp src/assistant/guigrounder.h
+  src/assistant/assistant_gui.cpp
   src/assistant/assistant_voice.cpp
   src/assistant/assistant_tools.cpp
   src/assistant/assistant_models.cpp
@@ -42,6 +44,9 @@ qt_add_library(nala_assistant STATIC
   src/assistant/eventlog.cpp src/assistant/eventlog.h
   src/assistant/llm.cpp src/assistant/llm.h
   src/assistant/memory.cpp src/assistant/memory.h
+  src/assistant/memory_semantic.cpp
+  src/assistant/retrieval.cpp src/assistant/retrieval.h
+  src/assistant/semantic.cpp src/assistant/semantic.h
   src/assistant/modelrouter.cpp src/assistant/modelrouter.h
   src/assistant/policy.cpp src/assistant/policy.h
   src/assistant/screenmemory.cpp src/assistant/screenmemory.h
@@ -149,3 +154,12 @@ target_link_libraries(nala-model-tests PRIVATE nala_assistant Qt6::Test)
 add_test(NAME nala-model-tests COMMAND nala-model-tests)
 set_tests_properties(nala-model-tests PROPERTIES ENVIRONMENT
   "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=")
+
+qt_add_executable(nala-agent-tests tests/agent_tests.cpp)
+target_link_libraries(nala-agent-tests PRIVATE nala_assistant Qt6::Test)
+add_test(NAME nala-agent-tests COMMAND nala-agent-tests)
+set_tests_properties(nala-agent-tests PROPERTIES ENVIRONMENT
+  "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;HYPRLAND_INSTANCE_SIGNATURE=")
+
+qt_add_executable(nala-agent-bench benchmarks/agent_bench.cpp)
+target_link_libraries(nala-agent-bench PRIVATE nala_assistant)
