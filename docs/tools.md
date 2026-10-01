@@ -101,3 +101,5 @@ explicit location.
 Named clicks also have a fast path. Coordinate screenshot/click/move tools stay
 available for debugging. See [computer-use.md](computer-use.md) and
 [semantic-search.md](semantic-search.md) for settings and limits.
+
+`window.focus_target` selects a unique app/title/workspace match and verifies focus; ambiguous candidates require a more specific request. `web.search` and `web.fetch` provide key-free live evidence behind the opt-in `agent.web` permission. Further searches after untrusted reads always confirm. See [window focus](window-focus.md) and [web search](web-search.md).

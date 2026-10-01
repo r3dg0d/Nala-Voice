@@ -1815,7 +1815,7 @@ private slots:
     QTemporaryDir dir;
     Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
     const QJsonArray all = assistant.tools().schema(
-        {"computer", "window", "apps", "files", "browser", "shell", "memory", "nala",
+        {"computer", "window", "apps", "files", "browser", "web", "shell", "memory", "nala",
          "system"});
     QCOMPARE(all.size(), assistant.tools().tools().size());
     QSet<QString> names;

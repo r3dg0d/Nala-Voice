@@ -290,3 +290,5 @@ to exercise those too — they check her proportions against the measurements in
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Window focus accepts app/title/workspace descriptions and verifies the selected window. Optional key-free web search supplies current evidence and source buttons. See [window focus](docs/window-focus.md) and [web search](docs/web-search.md).

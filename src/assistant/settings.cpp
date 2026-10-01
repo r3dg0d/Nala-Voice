@@ -165,6 +165,13 @@ const QVector<Spec> &specs() {
       {"agent.files", Kind::Bool, true},
       {"agent.fileRoots", Kind::List, QStringList()},
       {"agent.browser", Kind::Bool, true},
+      {"agent.web", Kind::Bool, false},
+      {"web.autoSearch", Kind::Bool, true},
+      {"web.provider", Kind::Choice, QStringLiteral("duckduckgo"), 0, 0, {"duckduckgo", "searxng"}},
+      {"web.duckduckgo.endpoint", Kind::Url, QStringLiteral("https://lite.duckduckgo.com/lite/")},
+      {"web.searxng.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:8080/search")},
+      {"web.maxResults", Kind::Int, 5, 1, 8},
+      {"web.timeoutMs", Kind::Int, 10000, 1000, 30000},
       {"agent.shell", Kind::Bool, false},
       {"agent.maxSteps", Kind::Int, 10, 1, 30},
 

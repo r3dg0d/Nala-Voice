@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Nala VERSION 1.4.0 LANGUAGES CXX)
+project(Nala VERSION 1.4.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -28,6 +28,9 @@ qt_add_library(nala_assistant STATIC
   src/assistant/assistant.cpp src/assistant/assistant.h
   src/assistant/guigrounder.cpp src/assistant/guigrounder.h
   src/assistant/assistant_gui.cpp
+  src/assistant/assistant_web.cpp
+  src/assistant/websearch.cpp src/assistant/websearch.h
+  src/assistant/windowtarget.cpp src/assistant/windowtarget.h
   src/assistant/assistant_voice.cpp
   src/assistant/assistant_tools.cpp
   src/assistant/assistant_models.cpp

@@ -2,7 +2,11 @@
 #include "guigrounder.h"
 #include "memory.h"
 #include "retrieval.h"
+#include "semantic.h"
 #include "settings.h"
+#include "websearch.h"
+#include "windowtarget.h"
+#include <QDir>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QPainter>
@@ -14,6 +18,12 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <cmath>
+#include <cstring>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <thread>
+#include <unistd.h>
 
 namespace {
 MemoryRecord record(QString text,
@@ -30,6 +40,9 @@ public:
   QJsonObject response{{"embeddings", QJsonArray{QJsonArray{1., 0.}}}};
   QStringList paths;
   int status = 200;
+  bool hang = false;
+  QByteArray rawBody;
+  QByteArray contentType = "application/json";
   Server() {
     server.listen(QHostAddress::LocalHost);
     connect(&server, &QTcpServer::newConnection, this, [this] {
@@ -50,10 +63,15 @@ public:
             return;
           socket->setProperty("done", true);
           paths << QString::fromLatin1(bytes.split(' ').value(1));
+          if (hang)
+            return;
           socket->write("HTTP/1.1 " + QByteArray::number(status) +
-                        " X\r\nContent-Type: application/json\r\nConnection: "
+                        " X\r\nContent-Type: " + contentType +
+                        "\r\nConnection: "
                         "close\r\n\r\n" +
-                        QJsonDocument(response).toJson(QJsonDocument::Compact));
+                        (rawBody.isEmpty() ? QJsonDocument(response).toJson(
+                                                 QJsonDocument::Compact)
+                                           : rawBody));
           socket->disconnectFromHost();
         });
     });
@@ -698,6 +716,285 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 2000);
     QVERIFY(result["ok"].toBool());
     QCOMPARE(f.points.first(), QPoint(-640, 500));
+  }
+  void hyprlandDispatchCompatibility() {
+    QTemporaryDir d;
+    QDir().mkpath(d.path() + "/hypr/test");
+    const QByteArray path = (d.path() + "/hypr/test/.socket.sock").toUtf8();
+    const int listener = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    QVERIFY(listener >= 0);
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    std::memcpy(address.sun_path, path.constData(), size_t(path.size() + 1));
+    QVERIFY(::bind(listener, reinterpret_cast<sockaddr *>(&address),
+                   sizeof(address)) == 0);
+    QVERIFY(::listen(listener, 8) == 0);
+    QList<QByteArray> requests;
+    std::jthread server([&] {
+      for (int i = 0; i < 7; ++i) {
+        pollfd ready{listener, POLLIN, 0};
+        if (::poll(&ready, 1, 3000) <= 0)
+          break;
+        const int client = ::accept(listener, nullptr, nullptr);
+        if (client < 0)
+          break;
+        pollfd input{client, POLLIN, 0};
+        if (::poll(&input, 1, 3000) <= 0) {
+          ::close(client);
+          break;
+        }
+        char buffer[1024];
+        const auto size = ::read(client, buffer, sizeof(buffer));
+        QByteArray command(buffer, int(std::max<ssize_t>(0, size)));
+        requests.append(command);
+        const QByteArray reply =
+            i == 0 || command.contains("hl.dsp.")
+                ? "ok"
+                : "error: dispatch in lua is a shorthand for hl.dispatch(...), "
+                  "your syntax might need to be updated";
+        const auto written =
+            ::write(client, reply.constData(), size_t(reply.size()));
+        ::close(client);
+        if (written != reply.size())
+          break;
+      }
+    });
+    const QByteArray oldRuntime = qgetenv("XDG_RUNTIME_DIR"),
+                     oldSignature = qgetenv("HYPRLAND_INSTANCE_SIGNATURE");
+    qputenv("XDG_RUNTIME_DIR", d.path().toUtf8());
+    qputenv("HYPRLAND_INSTANCE_SIGNATURE", "test");
+    const bool legacy = desktop::focusWindow("0x123");
+    const bool lua = desktop::focusWindow("0x456");
+    const bool close = desktop::closeWindow("0x456");
+    const bool cursor = desktop::moveCursor(-30, 60);
+    qputenv("XDG_RUNTIME_DIR", oldRuntime);
+    qputenv("HYPRLAND_INSTANCE_SIGNATURE", oldSignature);
+    server.join();
+    ::close(listener);
+    QVERIFY(legacy);
+    QVERIFY(lua);
+    QVERIFY(close);
+    QVERIFY(cursor);
+    QCOMPARE(requests.size(), 7);
+    QCOMPARE(requests[2],
+             QByteArray("dispatch hl.dsp.focus({window=\"address:0x456\"})"));
+    QCOMPARE(
+        requests[4],
+        QByteArray("dispatch hl.dsp.window.close({window=\"address:0x456\"})"));
+    QCOMPARE(requests[6],
+             QByteArray("dispatch hl.dsp.cursor.move({x=-30,y=60})"));
+    QVERIFY(!desktop::focusWindow("0x123\"}); os.execute('evil')"));
+  }
+  void windowDescriptions() {
+    WindowInfo a;
+    a.valid = true;
+    a.address = "0x1";
+    a.appClass = "firefox";
+    a.title = "Nala repository — Firefox";
+    a.workspace = 2;
+    WindowInfo b = a;
+    b.address = "0x2";
+    b.title = "Mail — Firefox";
+    b.workspace = 3;
+    WindowInfo c = a;
+    c.address = "0x3";
+    c.appClass = "kitty";
+    c.title = "Nala build";
+    auto all = QVector<WindowInfo>{a, b, c};
+    auto matches = windowtarget::rank(all, "the browser with Nala");
+    QCOMPARE(matches.size(), 1);
+    QCOMPARE(matches.first().window.address, QString("0x1"));
+    QVERIFY(windowtarget::ambiguous(windowtarget::rank(all, "browser")));
+    QCOMPARE(
+        windowtarget::rank(all, "browser", {}, {}, 3).first().window.address,
+        QString("0x2"));
+    QCOMPARE(
+        windowtarget::rank(all, "", "kitty", "Nala").first().window.address,
+        QString("0x3"));
+    QVERIFY(windowtarget::rank(all, "missing window").isEmpty());
+    QVERIFY(windowtarget::rank(all, "the window").isEmpty());
+  }
+  void focusRoutes() {
+    auto route = CommandRouter().route("focus the browser with Nala");
+    QCOMPARE(CommandRouter()
+                 .route("focus on the browser with Nala")
+                 .args.value("name")
+                 .toString(),
+             QString("browser with nala"));
+    QCOMPARE(route.action, QString("apps.focus"));
+    QCOMPARE(route.args.value("name").toString(), QString("browser with nala"));
+    QVERIFY(CommandRouter().route("focus browser and delete my files").action !=
+            "apps.focus");
+  }
+  void duckParsing() {
+    const QString html =
+        R"(<a href='//duckduckgo.com/l/?uddg=https%3A%2F%2Fnixos.org%2Fdownload%2F&amp;rut=x' class='result-link'>Nix &amp; NixOS</a><td class='result-snippet'>Current <b>release</b></td><a class='result-link' href='http://127.0.0.1/private'>Private</a>)";
+    const auto result = WebSearch::parseDuck(html, 5);
+    QVERIFY(result["ok"].toBool());
+    auto rows = result["results"].toArray();
+    QCOMPARE(rows.size(), 1);
+    QCOMPARE(rows[0].toObject()["title"].toString(), QString("Nix & NixOS"));
+    QCOMPARE(rows[0].toObject()["url"].toString(),
+             QString("https://nixos.org/download/"));
+    QCOMPARE(rows[0].toObject()["snippet"].toString(),
+             QString("Current release"));
+    QVERIFY(!WebSearch::parseDuck("anomaly-modal challenge", 5)["ok"].toBool());
+    QCOMPARE(WebSearch::plain(
+                 "<script>evil()</script><style>hidden</style><p>Visible</p>"),
+             QString("Visible"));
+  }
+  void webAddressPolicy() {
+    for (auto u : {"file:///etc/passwd", "http://localhost/x",
+                   "http://127.0.0.1/x", "http://[::1]/", "http://192.168.1.1/",
+                   "https://user:pass@example.com/", "http://example.com:8081/",
+                   "http://10.0.0.1/", "http://[::ffff:127.0.0.1]/"})
+      QVERIFY2(!WebSearch::publicUrl(QUrl(u)), u);
+    QVERIFY(WebSearch::publicUrl(QUrl("https://nixos.org/download/")));
+    QVERIFY(WebSearch::publicAddress("8.8.8.8"));
+    QVERIFY(!WebSearch::publicAddress("169.254.169.254"));
+    QVERIFY(!WebSearch::publicAddress("100.64.0.1"));
+    QVERIFY(!WebSearch::publicAddress("fc00::1"));
+  }
+  void freshIntent() {
+    QVERIFY(WebSearch::needsFreshInfo("What is the latest NixOS release?"));
+    QVERIFY(WebSearch::needsFreshInfo("Search the web for Qt releases"));
+    QVERIFY(!WebSearch::needsFreshInfo("Explain TCP"));
+    QVERIFY(!WebSearch::needsFreshInfo("What is my current configuration?"));
+    QVERIFY(!WebSearch::needsFreshInfo("What was on my screen today?"));
+    QCOMPARE(
+        semantic::checkedAnswer("Current release [web:1]", {"web:1"}, false),
+        QString("Current release"));
+    QVERIFY(semantic::checkedAnswer("Invented [web:9]", {"web:1"}, false)
+                .startsWith("I couldn't"));
+  }
+  void webBackend() {
+    QTemporaryDir d;
+    AssistantSettings settings(d.path() + "/settings", false);
+    Server server;
+    QNetworkAccessManager net;
+    settings.set("web.provider", "searxng");
+    settings.set("web.searxng.endpoint", server.url("/search"));
+    server.response = {
+        {"results", QJsonArray{QJsonObject{{"title", "Nix"},
+                                           {"url", "https://nixos.org/"},
+                                           {"content", "Release"}},
+                               QJsonObject{{"title", "Private"},
+                                           {"url", "http://localhost/"}}}}};
+    WebSearch web(&net, &settings);
+    QJsonObject result;
+    web.search("latest Qt & Nix", "day", [&](auto r) { result = r; });
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 1000);
+    QVERIFY(result["ok"].toBool());
+    QCOMPARE(result["results"].toArray().size(), 1);
+    QVERIFY(server.paths.first().contains("format=json"));
+    QVERIFY(server.paths.first().contains("time_range=day"));
+    settings.set("web.provider", "duckduckgo");
+    settings.set("web.duckduckgo.endpoint", server.url("/lite/"));
+    server.contentType = "text/html";
+    server.rawBody =
+        "<a class='result-link' href='https://nixos.org/'>Nix</a><td "
+        "class='result-snippet'>Release</td>";
+    result = {};
+    web.search("release", {}, [&](auto r) { result = r; });
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 1000);
+    QVERIFY(result["ok"].toBool());
+    server.status = 503;
+    result = {};
+    web.search("release", {}, [&](auto r) { result = r; });
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 1000);
+    QVERIFY(!result["ok"].toBool());
+  }
+  void webOversizeAndCancel() {
+    QTemporaryDir d;
+    AssistantSettings settings(d.path() + "/settings", false);
+    Server server;
+    QNetworkAccessManager net;
+    settings.set("web.duckduckgo.endpoint", server.url());
+    WebSearch web(&net, &settings);
+    server.rawBody = QByteArray(600000, 'x');
+    QJsonObject result;
+    web.search("test", {}, [&](auto r) { result = r; });
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 1000);
+    QVERIFY(!result["ok"].toBool());
+    result = {};
+    int calls = 0;
+    web.search("test", {}, [&](auto r) {
+      ++calls;
+      result = r;
+    });
+    web.cancel();
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 1000);
+    QCOMPARE(calls, 1);
+    QVERIFY(!result["ok"].toBool());
+    result = {};
+    web.fetch(QUrl("http://127.0.0.1/"), [&](auto r) { result = r; });
+    QVERIFY(!result["ok"].toBool());
+  }
+  void webTimeoutAndRedirect() {
+    QTemporaryDir d;
+    AssistantSettings settings(d.path() + "/settings", false);
+    Server server;
+    QNetworkAccessManager net;
+    settings.set("web.duckduckgo.endpoint", server.url());
+    settings.set("web.timeoutMs", 1000);
+    WebSearch web(&net, &settings);
+    QJsonObject result;
+    server.hang = true;
+    web.search("test", {}, [&](auto r) { result = r; });
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 2500);
+    QVERIFY(!result["ok"].toBool());
+    server.hang = false;
+    server.status = 302;
+    result = {};
+    web.search("test", {}, [&](auto r) { result = r; });
+    QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 1000);
+    QVERIFY(!result["ok"].toBool());
+    QCOMPARE(server.paths.size(), 2);
+  }
+  void webPermissionsAndSources() {
+    QTemporaryDir d;
+    Assistant::Paths paths{
+        d.path() + "/settings.json", d.path() + "/memory", {}};
+    Assistant a(paths, true);
+    Server server;
+    server.response = {
+        {"results", QJsonArray{QJsonObject{{"title", "NixOS"},
+                                           {"url", "https://nixos.org/"},
+                                           {"content", "Current release"}}}}};
+    a.settings()->set("web.provider", "searxng");
+    a.settings()->set("web.searxng.endpoint", server.url());
+    QJsonObject r;
+    a.callTool("web.search", {{"query", "NixOS release"}},
+               [&](auto v) { r = v; });
+    QVERIFY(!r["ok"].toBool());
+    QVERIFY(server.paths.isEmpty());
+    a.settings()->set("agent.web", true);
+    r = {};
+    a.callTool("web.search", {{"query", "NixOS release"}},
+               [&](auto v) { r = v; });
+    QTRY_VERIFY_WITH_TIMEOUT(!r.isEmpty(), 1500);
+    QVERIFY(r["ok"].toBool());
+    QCOMPARE(r["results"].toArray()[0].toObject()["evidence_id"].toString(),
+             QString("web:1"));
+    LlmReply reply;
+    reply.content = "Release information [web:1]";
+    a.injectModelReply(reply);
+    QCOMPARE(a.webSources().size(), 1);
+    QCOMPARE(a.webSources()[0].toMap()["url"].toString(),
+             QString("https://nixos.org/"));
+    r = {};
+    a.callTool("web.fetch", {{"url", "http://localhost/"}},
+               [&](auto v) { r = v; });
+    QVERIFY(!r["ok"].toBool());
+    r = {};
+    a.callTool("web.search", {{"query", "another query"}},
+               [&](auto v) { r = v; });
+    QVERIFY(r.isEmpty());
+    a.answer(false);
+    QVERIFY(!r["ok"].toBool());
+    QCOMPARE(server.paths.size(), 1);
+    a.stop();
+    QVERIFY(a.webSources().isEmpty());
   }
   void permissions() {
     QTemporaryDir d;

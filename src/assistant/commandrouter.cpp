@@ -249,7 +249,7 @@ void CommandRouter::build() {
         return QVariantMap{{"name", m.captured(1)}};
       });
   add("(?:switch\\s+to|focus(?:\\s+on)?|bring\\s+up)\\s+(?:the\\s+|my\\s+)?"
-      "([a-z0-9][a-z0-9.+\\-]*(?:\\s+[a-z0-9.+\\-]+){0,2})",
+      "((?!.*\\b(?:and|then)\\b).{1,200})",
       "apps.focus", [](const QRegularExpressionMatch &m) {
         return QVariantMap{{"name", m.captured(1)}};
       });

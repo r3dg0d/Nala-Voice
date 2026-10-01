@@ -25,7 +25,9 @@ Window {
     // Shown by main() once it has been made a layer surface, like her.
     visible: false
 
-    onAskingChanged: backend.setBubbleInteractive(asking)
+    readonly property bool hasSources: assistant.webSources.length > 0
+    onAskingChanged: backend.setBubbleInteractive(asking || hasSources)
+    onHasSourcesChanged: backend.setBubbleInteractive(asking || hasSources)
 
     Rectangle {
         id: card
@@ -104,8 +106,26 @@ Window {
                 font.pixelSize: 14
                 font.family: theme.fontFamily
                 wrapMode: Text.Wrap
-                maximumLineCount: 6
+                maximumLineCount: bubble.hasSources ? 4 : 6
                 elide: Text.ElideRight
+            }
+
+            RowLayout {
+                visible: bubble.hasSources && !bubble.asking
+                spacing: 4
+                Repeater {
+                    model: assistant.webSources.slice(0, 3)
+                    Button {
+                        required property var modelData
+                        Layout.preferredWidth: 90
+                        Layout.preferredHeight: 24
+                        text: modelData.host
+                        font.pixelSize: 10
+                        ToolTip.visible: hovered
+                        ToolTip.text: modelData.title
+                        onClicked: Qt.openUrlExternally(modelData.url)
+                    }
+                }
             }
 
             // Listening: a small level meter, so it is obvious the mic is open.

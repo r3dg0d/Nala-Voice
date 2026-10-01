@@ -72,7 +72,7 @@ private:
     lastBody[path] = body;
     if (path.endsWith("/chat/completions") || path == "/api/chat")
       chatBodies << QJsonDocument::fromJson(body).object();
-    Reply r = replies.value(path, Reply{404, "{}", {}});
+    Reply r = replies.value(path, replies.value(QUrl(path).path(), Reply{404, "{}", {}}));
     if (path.endsWith("/chat/completions") && chat)
       r = chat(chatBodies.last());
     if (path == "/api/chat" && nativeChat) {
@@ -1320,6 +1320,33 @@ private:
   };
 
 private slots:
+  void currentQuestionUsesWebEvidenceOnce() {
+    Rig rig;FakeServer search;
+    search.replies["/search"].body = R"({"results":[{"title":"Release notes","url":"https://nixos.org/","content":"Current release evidence"}]})";
+    rig.a->settings()->set("agent.web", true);
+    rig.a->settings()->set("web.provider", "searxng");
+    rig.a->settings()->set("web.searxng.endpoint", search.url("/search").toString());
+    rig.srv.nativeChat = [](const QJsonObject &) {
+      FakeServer::Reply r;r.body = R"({"message":{"role":"assistant","content":"Current release [web:1]"},"done":true})";return r;
+    };
+    rig.srv.chat = [](const QJsonObject &) {
+      FakeServer::Reply r;r.body = R"({"choices":[{"message":{"role":"assistant","content":"Current release [web:1]"},"finish_reason":"stop"}]})";return r;
+    };
+    rig.a->ask("What is the latest NixOS release?");
+    QTRY_VERIFY_WITH_TIMEOUT(!rig.srv.chatBodies.isEmpty(), 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(rig.a->webSources().size(), 1, 3000);
+    const auto body = rig.srv.chatBodies.last();
+    bool sourceTool = false;
+    for (auto message : body.value("messages").toArray())
+      if (message.toObject().value("role") == "tool" && message.toObject().value("content").toString().contains("web:1")) sourceTool = true;
+    QVERIFY(sourceTool);
+    for (auto tool : body.value("tools").toArray())
+      QVERIFY(tool.toObject().value("function").toObject().value("name").toString() != "web_search");
+    QCOMPARE(search.paths.size(), 1);
+    QJsonObject repeated;
+    rig.a->callTool("web.search", {{"query", "NixOS release again"}}, [&](auto r) { repeated = r; });
+    QVERIFY(!repeated["ok"].toBool());QCOMPARE(search.paths.size(), 1);QVERIFY(rig.a->question().isEmpty());
+  }
   void routesEachRequestToTheRightModel() {
     Rig rig;
     QSignalSpy said(rig.a.get(), &Assistant::said);

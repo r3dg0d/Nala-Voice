@@ -735,6 +735,33 @@ Window {
                     text: "Open web pages"
                 }
                 SettingSwitch {
+                    key: "agent.web"
+                    text: "Web search (no API key)"
+                }
+                Note {
+                    visible: settings.v("agent.web") === true
+                    text: "Search queries leave this computer. Nala cites sources; your memories are not sent to search automatically."
+                }
+                SettingSwitch {
+                    visible: settings.v("agent.web") === true
+                    key: "web.autoSearch"
+                    text: "Look up clearly current questions automatically"
+                }
+                SettingChoice {
+                    visible: settings.v("agent.web") === true
+                    key: "web.provider"
+                    label: "Search provider"
+                    options: [
+                        { label: "DuckDuckGo (no keys)", value: "duckduckgo" },
+                        { label: "Your SearXNG server", value: "searxng" }
+                    ]
+                }
+                SettingField {
+                    visible: settings.v("agent.web") === true && settings.v("web.provider") === "searxng"
+                    key: "web.searxng.endpoint"
+                    label: "SearXNG search URL (JSON enabled)"
+                }
+                SettingSwitch {
                     key: "agent.shell"
                     text: "Run shell commands"
                 }

@@ -148,3 +148,5 @@ is asynchronous and uses the existing SQL connection on its owning thread;
 in-process cosine scoring currently runs there too. No mandatory ML libraries
 or databases were added. See [computer-use.md](computer-use.md),
 [semantic-search.md](semantic-search.md) and [memory.md](memory.md).
+
+Window targeting ranks compositor metadata by app/title/workspace and verifies active focus. Key-free web retrieval is a separate opt-in permission: DuckDuckGo Lite or configured SearXNG → snippets/allowed public source reads → local model → checked evidence IDs → source buttons. Current-question routing never sends memory context to search. See [web search](web-search.md) and [window focus](window-focus.md).

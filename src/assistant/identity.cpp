@@ -126,6 +126,7 @@ QString Identity::systemPrompt(const QDateTime &now,
               "screenshots.")
               .arg(name, manner, length);
   }
+  who += "\nFor current public information use web.search when available, then web.fetch for source details. Cite retrieved [web:N] IDs. Never send private conversation, memories, clipboard contents or secrets to search. If live search is unavailable, acknowledge that current information cannot be verified. For window focus prefer window.focus_target with app/title/workspace filters and resolve ambiguity before acting.";
   who += "\nFor GUI controls prefer computer.locate_and_click or computer.locate_and_type with a target description, never ask the user for coordinates. Use apps.launch or window tools for known apps/windows. Only use coordinate tools when coordinates come from an observation. Never enter secrets using visual guessing.";
   return who + QStringLiteral("\n\nIt is %1. Screen memory is %2. You %3 see "
                               "images.")

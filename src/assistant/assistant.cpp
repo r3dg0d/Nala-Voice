@@ -1,4 +1,5 @@
 #include "assistant.h"
+#include "websearch.h"
 #include "audio.h"
 #include "contextbudget.h"
 #include "eventlog.h"
@@ -85,6 +86,7 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
 
   m_llm = new LlmClient(&m_network, this);
   m_memoryLlm = new LlmClient(&m_network, this);
+  m_web = new WebSearch(&m_network, m_settings, this);
   m_summaryLlm = new LlmClient(&m_network, this);
   m_benchLlm = new LlmClient(&m_network, this);
   m_memory = new ScreenMemory(m_settings, m_store.get(), m_log, m_memoryLlm, this);
@@ -334,6 +336,7 @@ void Assistant::settle() {
 }
 
 void Assistant::applySettings(const QString &key) {
+  if (m_web && (!m_settings->flag("agent.web") || !m_settings->flag("agent.enabled"))) m_web->cancel();
   m_log->setDebug(m_settings->flag("developer.debug"));
   m_store->setFeatures(m_settings->flag("memory.durable.enabled"), m_settings->flag("memory.entities.enabled"));
 
@@ -946,8 +949,8 @@ void Assistant::runFast(const Route &route) {
     }
     const QString tool = a == "apps.launch" ? "apps.launch"
                          : a == "apps.close" ? "apps.close"
-                                             : "apps.focus";
-    callTool(tool, {{"name", name}}, [this, a, name, route](const QJsonObject &r) {
+                                             : "window.focus_target";
+    callTool(tool, {{a == "apps.focus" ? "query" : "name", name}}, [this, a, name, route](const QJsonObject &r) {
       if (r.value("ok").toBool()) {
         say(a == "apps.launch"  ? QStringLiteral("Opening %1.")
                                       .arg(r.value("app").toString(name))
@@ -959,8 +962,14 @@ void Assistant::runFast(const Route &route) {
       if (m_settings->flag("llm.enabled") && a != "apps.launch" &&
           r.value("error").toString().startsWith("no window"))
         think(route.text);
-      else
-        say(r.value("error").toString());
+      else {
+        QString error = r.value("error").toString();
+        for (auto v : r.value("candidates").toArray()) {
+          const auto c = v.toObject();
+          error += "\n" + c.value("app").toString() + ": " + c.value("title").toString() + " (workspace " + QString::number(c.value("workspace").toInt()) + ")";
+        }
+        say(error, false);
+      }
     });
     return;
   }
@@ -980,6 +989,8 @@ QSet<QString> Assistant::categories() const {
     on << "computer";
   if (m_settings->flag("agent.files"))
     on << "files";
+  if (m_settings->flag("agent.web"))
+    on << "web";
   if (m_settings->flag("agent.browser"))
     on << "browser";
   if (m_settings->flag("agent.shell"))
@@ -1040,8 +1051,18 @@ void Assistant::onModelReply(const LlmReply &reply) {
   compactHistory();
   if (m_streamSpeaking)
     finishStreamedSpeech(text); // the voice already has most of it
-  else
+  else {
     say(text);
+    m_citedWebSources.clear();
+    if (!m_webSources.isEmpty() && !text.startsWith("I couldn't verify") && !text.startsWith("I couldn't find enough cited")) {
+      for (auto i = m_webSources.cbegin(); i != m_webSources.cend(); ++i)
+        if (reply.content.contains("[" + i.key() + "]")) {
+          const auto source = i.value();
+          m_citedWebSources.append(QVariantMap{{"title", source.value("title").toString()}, {"url", source.value("url").toString()}, {"host", QUrl(source.value("url").toString()).host()}});
+        }
+    }
+    emit bubbleChanged();
+  }
 }
 
 void Assistant::runToolCalls() {
@@ -1106,6 +1127,9 @@ void Assistant::callTool(const QString &name, const QJsonObject &args,
     done(fail(QStringLiteral("The user has switched off %1 access.")
                   .arg(tool->category)));
     return;
+  }
+  if (name == "web.search" && m_autoWebResult) {
+    done(fail("Live search is already complete; use retrieved evidence or web.fetch.")); return;
   }
   const Risk risk = tool->riskFor ? tool->riskFor(args) : tool->risk;
   const Decision decision = decide(risk, m_settings->string("agent.confirm"));
@@ -1191,6 +1215,8 @@ void Assistant::stop() {
   m_streamText.clear();
   m_llm->cancel();
   if (m_gui) m_gui->cancel();
+  if (m_web) m_web->cancel();
+  m_citedWebSources.clear(); emit bubbleChanged();
   m_pendingCalls.clear();
   m_thinking = false;
   m_transcribing = false;
@@ -1769,6 +1795,7 @@ void Assistant::diagnose(std::function<void(QString)> done) {
 
 void Assistant::registerTools() {
   registerGuiTools();
+  registerWebTools();
   using namespace schema;
   const QString home = QDir::homePath();
 
@@ -1933,7 +1960,8 @@ void Assistant::registerTools() {
                   .allowed;
           list.append(QJsonObject{{"address", w.address},
                                   {"app", w.appClass},
-                                  {"title", open ? w.title : "(private)"}});
+                                  {"title", open ? w.title : "(private)"},
+                                  {"workspace", w.workspace}, {"monitor", w.monitorName}});
         }
         m_turnTainted = true;
         done(ok({{"windows", list}}));
@@ -1943,11 +1971,14 @@ void Assistant::registerTools() {
       object({{"address", string("Window address from window_list", 20)}},
              {"address"}),
       Risk::Low, "window", nullptr, nullptr,
-      [](const QJsonObject &a, Tool::Done done) {
-        done(desktop::focusWindow(a.value("address").toString())
-                 ? ok()
-                 : fail("No such window."));
+      [this](const QJsonObject &a, Tool::Done done) {
+        focusTarget({{"address", a.value("address")}}, done);
       }});
+  m_tools.add(Tool{
+      "window.focus_target", "Focus an existing window by app and title description. Ambiguous matches return candidates without changing focus. Verify the compositor's active window.",
+      object({{"query", string("Window description", 200)}, {"app", string("Optional app filter", 100)}, {"title", string("Optional title filter", 160)}, {"workspace", integer("Optional workspace ID", -100, 10000)}, {"address", string("Optional exact listed window address", 20)}}),
+      Risk::Low, "window", nullptr, nullptr,
+      [this](const QJsonObject &a, Tool::Done done) { focusTarget(a, done); }});
   m_tools.add(Tool{
       "window.close", "Close a window, by address. Unsaved work may be lost.",
       object({{"address", string("Window address from window_list", 20)}},
@@ -2030,14 +2061,8 @@ void Assistant::registerTools() {
       "apps.focus", "Switch to an open application by name.",
       object({{"name", string("The application", 80)}}, {"name"}), Risk::Low,
       "apps", nullptr, nullptr,
-      [matching](const QJsonObject &a, Tool::Done done) {
-        const QVector<WindowInfo> found = matching(a.value("name").toString());
-        if (found.isEmpty()) {
-          done(fail("no window matches that name"));
-          return;
-        }
-        done(desktop::focusWindow(found.first().address) ? ok()
-                                                         : fail("could not focus"));
+      [this](const QJsonObject &a, Tool::Done done) {
+        focusTarget({{"query", a.value("name")}}, done);
       }});
   m_tools.add(Tool{
       "apps.close", "Close every window of an application, by name.",

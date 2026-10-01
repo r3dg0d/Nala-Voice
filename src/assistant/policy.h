@@ -59,6 +59,7 @@ struct WindowInfo {
   bool fullscreen = false;
   bool xwayland = false;
   int pid = 0;
+  int workspace = 0;
 };
 
 struct PrivacyCheck {

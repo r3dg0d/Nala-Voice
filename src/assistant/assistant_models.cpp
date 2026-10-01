@@ -5,6 +5,7 @@
 // Everything that decides is in modelrouter/contextbudget/modelcatalog, where
 // it is tested without a server; this file connects it to the running assistant.
 #include "assistant.h"
+#include "websearch.h"
 #include "audio.h"
 #include "contextbudget.h"
 #include "eventlog.h"
@@ -265,9 +266,15 @@ QString Assistant::thinkingFor(const ModelPick &pick) const {
 }
 
 void Assistant::sendChat() {
-  const QJsonArray tools = m_settings->flag("llm.toolCalling")
+  QJsonArray tools = m_settings->flag("llm.toolCalling")
                                ? m_tools.schema(categories())
                                : QJsonArray();
+  if (m_autoWebResult) {
+    QJsonArray filtered;
+    for (auto tool : tools)
+      if (tool.toObject().value("function").toObject().value("name").toString() != ToolRegistry::wireName("web.search")) filtered.append(tool);
+    tools = filtered;
+  }
   m_llmClock.start();
   if (m_settings->flag("llm.streaming") && !m_memoryAnswer)
     m_llm->chatStream(m_turnMessages, tools);
@@ -320,7 +327,9 @@ void Assistant::think(const QString &text) {
     }
   }
   m_turnEvidence.clear();
+  m_webSources.clear(); m_webSequence = 0; m_citedWebSources.clear(); emit bubbleChanged();
   m_memoryAnswer = false;
+  m_autoWebResult = false;
   m_turnTainted = false;
   m_triedModels.clear();
   m_streamSpeaking = false;
@@ -397,6 +406,20 @@ void Assistant::think(const QString &text) {
           m_log->record("memory", "retrieved", {{"evidence", ids}});
           dispatch();
         });
+    } else if (categories().contains("web") && m_settings->flag("web.autoSearch") && WebSearch::needsFreshInfo(text)) {
+      m_memoryAnswer = true;
+      callTool("web.search", {{"query", text}}, [this, dispatch, turn](QJsonObject evidence) {
+        if (turn != m_turn) return;
+        if (!evidence.value("ok").toBool()) {
+          m_thinking = false;
+          say("I couldn't verify live web information: " + evidence.value("error").toString());return;
+        }
+        m_autoWebResult = true;
+        m_turnMessages.append(QJsonObject{{"role", "system"}, {"content", "Live search has already completed for this request. Do not search again. Answer using the retrieved evidence or fetch an exact returned source URL for more detail."}});
+        m_turnMessages.append(QJsonObject{{"role", "assistant"}, {"content", ""}, {"tool_calls", QJsonArray{QJsonObject{{"id", "auto_web_search"}, {"type", "function"}, {"function", QJsonObject{{"name", ToolRegistry::wireName("web.search")}, {"arguments", QString::fromUtf8(QJsonDocument(QJsonObject{{"query", m_turnText}}).toJson(QJsonDocument::Compact))}}}}}}});
+        m_turnMessages.append(QJsonObject{{"role", "tool"}, {"tool_call_id", "auto_web_search"}, {"content", QString::fromUtf8(QJsonDocument(evidence).toJson(QJsonDocument::Compact))}});
+        dispatch();
+      });
     } else dispatch();
   };
   // Never hold a request for the model list once it is known: a stale list is

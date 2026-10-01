@@ -10,6 +10,12 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.4.1 — 2026-09-30
+
+- Match window focus by app/title/workspace, refuse ambiguous selections, and verify the compositor's active window. Named focus commands stay on the fast path.
+- Add opt-in, key-free DuckDuckGo Lite search and configurable SearXNG, current-question retrieval, bounded public-source fetching, evidence-ID checks and clickable source buttons.
+- Keep private memories out of automatic web queries; further searches after untrusted tool reads require confirmation. Add offline backend, privacy, parsing, routing and provenance tests.
+
 ## 1.4.0 — 2026-09-30
 
 - Add named-target, closed-loop GUI grounding with cropped observations, cursor landmarks, normalized coordinates, bounded refinement, fresh retry confirmations and post-action verification.

@@ -30,6 +30,7 @@ class Microphone;
 class QProcess;
 class ScreenMemory;
 class GuiGrounder;
+class WebSearch;
 class Retrieval;
 class Speaker;
 class SpeechToText;
@@ -51,6 +52,7 @@ class Assistant : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString state READ state NOTIFY stateChanged)
   Q_PROPERTY(QString bubble READ bubble NOTIFY bubbleChanged)
+  Q_PROPERTY(QVariantList webSources READ webSources NOTIFY bubbleChanged)
   Q_PROPERTY(QString heard READ heard NOTIFY bubbleChanged)
   Q_PROPERTY(QString question READ question NOTIFY questionChanged)
   Q_PROPERTY(bool listening READ listening NOTIFY stateChanged)
@@ -109,6 +111,7 @@ public:
   EventLog *log() const { return m_log; }
   ScreenMemory *memory() const { return m_memory; }
   MemoryStore *store() const { return m_store.get(); }
+  QVariantList webSources() const { return m_citedWebSources; }
   const ToolRegistry &tools() const { return m_tools; }
   desktop::AppIndex &apps() { return m_apps; }
 
@@ -316,6 +319,8 @@ private:
   // recording and a short list of read-only commands (assistant_tools.cpp).
   void registerSystemTools();
   void registerGuiTools();
+  void registerWebTools();
+  void focusTarget(const QJsonObject &, Tool::Done);
   void runGuiTarget(const QJsonObject &args, Tool::Done done);
   // Runs a router action that belongs to them; false if it is not one.
   bool runSystemFast(const Route &route);
@@ -391,6 +396,11 @@ private:
   Retrieval *m_retrieval = nullptr;
   QSet<QString> m_turnEvidence;
   bool m_memoryAnswer = false;
+  bool m_autoWebResult = false;
+  WebSearch *m_web = nullptr;
+  QMap<QString, QJsonObject> m_webSources;
+  int m_webSequence = 0;
+  QVariantList m_citedWebSources;
   LlmClient *m_summaryLlm = nullptr;  // folds old turns into a summary
   LlmClient *m_benchLlm = nullptr;    // `nala benchmark`, never the live one
   Microphone *m_mic = nullptr;

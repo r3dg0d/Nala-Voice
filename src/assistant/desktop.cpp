@@ -67,6 +67,7 @@ WindowInfo parseClient(const QJsonObject &c, const QHash<int, QString> &mons) {
   w.appClass = c.value("class").toString();
   w.initialClass = c.value("initialClass").toString();
   w.title = c.value("title").toString();
+  w.workspace = c.value("workspace").toObject().value("id").toInt();
   const QJsonArray at = c.value("at").toArray();
   const QJsonArray size = c.value("size").toArray();
   w.geometry = QRect(at.at(0).toInt(), at.at(1).toInt(), size.at(0).toInt(),
@@ -151,30 +152,42 @@ bool validAddress(const QString &address) {
   return re.match(address).hasMatch();
 }
 
+namespace {
+bool dispatchCompatible(const QByteArray &legacy, const QByteArray &lua) {
+  const auto reply = hyprctl("dispatch " + legacy).trimmed();
+  if (reply.startsWith("ok"))
+    return true;
+  // Retry only a parse rejection, never an uncertain/operational failure.
+  if (!reply.contains("dispatch in lua") &&
+      !reply.contains("shorthand for hl.dispatch"))
+    return false;
+  return hyprctl("dispatch " + lua).trimmed().startsWith("ok");
+}
+} // namespace
 bool focusWindow(const QString &address) {
   if (!validAddress(address))
     return false;
-  return hyprctl("dispatch focuswindow address:" + address.toLatin1())
-      .trimmed()
-      .startsWith("ok");
+  const auto selector = "address:" + address.toLatin1();
+  return dispatchCompatible("focuswindow " + selector,
+                            "hl.dsp.focus({window=\"" + selector + "\"})");
 }
-
 bool closeWindow(const QString &address) {
   if (!validAddress(address))
     return false;
-  return hyprctl("dispatch closewindow address:" + address.toLatin1())
-      .trimmed()
-      .startsWith("ok");
+  const auto selector = "address:" + address.toLatin1();
+  return dispatchCompatible("closewindow " + selector,
+                            "hl.dsp.window.close({window=\"" + selector +
+                                "\"})");
 }
-
 bool moveCursor(int x, int y) {
-  return hyprctl(QByteArray("dispatch movecursor ") + QByteArray::number(x) +
-                 " " + QByteArray::number(y))
-      .trimmed()
-      .startsWith("ok");
+  return dispatchCompatible("movecursor " + QByteArray::number(x) + " " +
+                                QByteArray::number(y),
+                            "hl.dsp.cursor.move({x=" + QByteArray::number(x) +
+                                ",y=" + QByteArray::number(y) + "})");
 }
 
-// --- applications -------------------------------------------------------------
+// --- applications
+// -------------------------------------------------------------
 
 App parseDesktopEntry(const QString &text, bool *ok) {
   App app;
@@ -248,10 +261,11 @@ void AppIndex::scan() {
   QSet<QString> seen;
   // Earlier directories win, as the spec requires: the user's own overrides
   // come first.
-  for (const QString &root :
-       QStandardPaths::standardLocations(QStandardPaths::ApplicationsLocation)) {
+  for (const QString &root : QStandardPaths::standardLocations(
+           QStandardPaths::ApplicationsLocation)) {
     QDirIterator it(root, {"*.desktop"}, QDir::Files,
-                    QDirIterator::Subdirectories | QDirIterator::FollowSymlinks);
+                    QDirIterator::Subdirectories |
+                        QDirIterator::FollowSymlinks);
     while (it.hasNext()) {
       const QString path = it.next();
       QString id = path.mid(root.size() + 1);
@@ -286,23 +300,32 @@ QStringList AppIndex::names() const {
 const App *AppIndex::find(const QString &spoken) const {
   QString want = spoken.toLower().simplified();
   want.remove(QRegularExpression(QStringLiteral(R"(^(the|my|a|an)\s+)")));
-  want.remove(QRegularExpression(QStringLiteral(R"(\s+(app|application|program)$)")));
+  want.remove(
+      QRegularExpression(QStringLiteral(R"(\s+(app|application|program)$)")));
   if (want.isEmpty())
     return nullptr;
 
   // Generic requests go by category.
   static const QHash<QString, QString> kinds = {
-      {"terminal", "TerminalEmulator"},  {"console", "TerminalEmulator"},
-      {"shell", "TerminalEmulator"},     {"browser", "WebBrowser"},
-      {"web browser", "WebBrowser"},     {"internet", "WebBrowser"},
-      {"files", "FileManager"},          {"file manager", "FileManager"},
-      {"file browser", "FileManager"},   {"text editor", "TextEditor"},
-      {"editor", "TextEditor"},          {"calculator", "Calculator"},
-      {"music player", "Player"},        {"email", "Email"},
+      {"terminal", "TerminalEmulator"},
+      {"console", "TerminalEmulator"},
+      {"shell", "TerminalEmulator"},
+      {"browser", "WebBrowser"},
+      {"web browser", "WebBrowser"},
+      {"internet", "WebBrowser"},
+      {"files", "FileManager"},
+      {"file manager", "FileManager"},
+      {"file browser", "FileManager"},
+      {"text editor", "TextEditor"},
+      {"editor", "TextEditor"},
+      {"calculator", "Calculator"},
+      {"music player", "Player"},
+      {"email", "Email"},
       {"mail", "Email"}};
 
   const auto norm = [](QString s) {
-    return s.toLower().remove(QRegularExpression(QStringLiteral(R"([^a-z0-9+]+)")));
+    return s.toLower().remove(
+        QRegularExpression(QStringLiteral(R"([^a-z0-9+]+)")));
   };
   const QString key = norm(want);
 
@@ -318,8 +341,7 @@ const App *AppIndex::find(const QString &spoken) const {
     int score = 0;
     if (name == key || idTail == key || binary == key)
       score = 100;
-    else if (kinds.contains(want) &&
-             app.categories.contains(kinds.value(want)))
+    else if (kinds.contains(want) && app.categories.contains(kinds.value(want)))
       score = 80;
     else if (name.startsWith(key) || idTail.startsWith(key))
       score = 60;
@@ -370,7 +392,8 @@ bool launch(const App &app, QString *error) {
   return ok;
 }
 
-// --- helpers --------------------------------------------------------------------
+// --- helpers
+// --------------------------------------------------------------------
 
 Result run(const QString &program, const QStringList &args, int timeoutMs,
            const QByteArray &input) {
@@ -403,12 +426,11 @@ Result run(const QString &program, const QStringList &args, int timeoutMs,
   }
   result.exitCode = process.exitCode();
   result.out = process.readAllStandardOutput();
-  result.ok = process.exitStatus() == QProcess::NormalExit &&
-              result.exitCode == 0;
+  result.ok =
+      process.exitStatus() == QProcess::NormalExit && result.exitCode == 0;
   if (!result.ok)
-    result.error = QString::fromUtf8(process.readAllStandardError())
-                       .trimmed()
-                       .left(300);
+    result.error =
+        QString::fromUtf8(process.readAllStandardError()).trimmed().left(300);
   return result;
 }
 
@@ -426,7 +448,8 @@ Tools detectTools() {
       "XDG_RUNTIME_DIR", QStringLiteral("/run/user/%1").arg(::getuid()));
   for (const QString &socket :
        {env.value("YDOTOOL_SOCKET"), runtime + "/.ydotool_socket",
-        QStringLiteral("/tmp/.ydotool_socket"), QStringLiteral("/run/ydotoold/socket")})
+        QStringLiteral("/tmp/.ydotool_socket"),
+        QStringLiteral("/run/ydotoold/socket")})
     if (!socket.isEmpty() && QFileInfo::exists(socket))
       tools.ydotoold = true;
   return tools;
@@ -442,17 +465,29 @@ bool typeText(const QString &text, QString *error) {
 
 bool pressKeys(const QString &combo, QString *error) {
   static const QHash<QString, QString> modifiers = {
-      {"ctrl", "ctrl"},   {"control", "ctrl"}, {"shift", "shift"},
-      {"alt", "alt"},     {"super", "logo"},   {"meta", "logo"},
-      {"win", "logo"},    {"logo", "logo"},    {"altgr", "altgr"}};
-  static const QHash<QString, QString> keys = {
-      {"enter", "Return"},     {"return", "Return"},   {"esc", "Escape"},
-      {"escape", "Escape"},    {"tab", "Tab"},         {"space", "space"},
-      {"backspace", "BackSpace"}, {"delete", "Delete"}, {"del", "Delete"},
-      {"up", "Up"},            {"down", "Down"},       {"left", "Left"},
-      {"right", "Right"},      {"home", "Home"},       {"end", "End"},
-      {"pageup", "Prior"},     {"pagedown", "Next"},   {"insert", "Insert"},
-      {"print", "Print"},      {"menu", "Menu"}};
+      {"ctrl", "ctrl"}, {"control", "ctrl"}, {"shift", "shift"},
+      {"alt", "alt"},   {"super", "logo"},   {"meta", "logo"},
+      {"win", "logo"},  {"logo", "logo"},    {"altgr", "altgr"}};
+  static const QHash<QString, QString> keys = {{"enter", "Return"},
+                                               {"return", "Return"},
+                                               {"esc", "Escape"},
+                                               {"escape", "Escape"},
+                                               {"tab", "Tab"},
+                                               {"space", "space"},
+                                               {"backspace", "BackSpace"},
+                                               {"delete", "Delete"},
+                                               {"del", "Delete"},
+                                               {"up", "Up"},
+                                               {"down", "Down"},
+                                               {"left", "Left"},
+                                               {"right", "Right"},
+                                               {"home", "Home"},
+                                               {"end", "End"},
+                                               {"pageup", "Prior"},
+                                               {"pagedown", "Next"},
+                                               {"insert", "Insert"},
+                                               {"print", "Print"},
+                                               {"menu", "Menu"}};
 
   QStringList mods, args;
   QString key;
@@ -466,7 +501,9 @@ bool pressKeys(const QString &combo, QString *error) {
                  .match(lower)
                  .hasMatch())
       key = lower.toUpper();
-    else if (QRegularExpression(QStringLiteral("^[a-z0-9]$")).match(lower).hasMatch())
+    else if (QRegularExpression(QStringLiteral("^[a-z0-9]$"))
+                 .match(lower)
+                 .hasMatch())
       key = lower;
     else if (QRegularExpression(QStringLiteral("^[A-Za-z_]{2,20}$"))
                  .match(part.trimmed())
@@ -507,16 +544,17 @@ bool click(int button, int count, QString *error) {
 }
 
 bool scroll(int dx, int dy, QString *error) {
-  const Result r = run("ydotool", {"mousemove", "--wheel", "-x",
-                                   QString::number(std::clamp(dx, -50, 50)),
-                                   "-y",
-                                   QString::number(std::clamp(dy, -50, 50))});
+  const Result r =
+      run("ydotool", {"mousemove", "--wheel", "-x",
+                      QString::number(std::clamp(dx, -50, 50)), "-y",
+                      QString::number(std::clamp(dy, -50, 50))});
   if (!r.ok && error)
     *error = r.error;
   return r.ok;
 }
 
-// --- screen -------------------------------------------------------------------
+// --- screen
+// -------------------------------------------------------------------
 
 void capture(const QRect &region, const QString &output,
              std::function<void(QImage, QString)> done, QObject *context) {
@@ -540,9 +578,8 @@ void capture(const QRect &region, const QString &output,
   auto *process = new QProcess(context);
   auto *timeout = new QTimer(process);
   timeout->setSingleShot(true);
-  QObject::connect(timeout, &QTimer::timeout, process, [process] {
-    process->kill();
-  });
+  QObject::connect(timeout, &QTimer::timeout, process,
+                   [process] { process->kill(); });
   QObject::connect(
       process, &QProcess::finished, context,
       [process, done](int code, QProcess::ExitStatus status) {
@@ -556,8 +593,8 @@ void capture(const QRect &region, const QString &output,
         }
         QImage image;
         image.loadFromData(process->readAllStandardOutput(), "JPEG");
-        done(image, image.isNull() ? QStringLiteral("grim sent no image")
-                                   : QString());
+        done(image,
+             image.isNull() ? QStringLiteral("grim sent no image") : QString());
       });
   QObject::connect(process, &QProcess::errorOccurred, context,
                    [process, done](QProcess::ProcessError error) {

@@ -66,18 +66,18 @@ QMap<qint64, double> fuse(const QVector<QVector<qint64>> &channels, int k) {
 }
 QString checkedAnswer(QString answer, const QSet<QString> &evidence,
                       bool debug) {
-  const QRegularExpression citation("\\[(memory|fact|artifact):([0-9]+)\\]");
+  const QRegularExpression citation("\\[(memory|fact|artifact|web):([0-9]+)\\]");
   auto matches = citation.globalMatch(answer);
   bool cited = false;
   while (matches.hasNext()) {
     const auto match = matches.next();
     if (!evidence.contains(match.captured(1) + ":" + match.captured(2)))
-      return "I couldn't verify that answer against the retrieved memory "
+      return "I couldn't verify that answer against the retrieved "
              "evidence.";
     cited = true;
   }
   if (!cited || evidence.isEmpty())
-    return "I couldn't find enough cited memory evidence to answer that "
+    return "I couldn't find enough cited evidence to answer that "
            "reliably.";
   if (!debug)
     answer.remove(citation);
