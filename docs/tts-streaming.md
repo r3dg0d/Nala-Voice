@@ -88,8 +88,9 @@ Use `--voice-root` to prepare a separate root when existing checkouts/models hav
 other revisions. Preparation checks pins and patch integrity and refuses to
 replace incompatible directories. About 4.5 GB of model files are downloaded;
 ONNX/external weights/engine/export intermediates require additional disk space.
-Export/build can approach the 32 GB host RAM limit. Run them sequentially and
-unload Nala's idle vision model first. Do not stop unrelated applications.
+Export/build can approach the 32 GB host RAM limit. Stop the existing X2 service
+before export/build, run the phases sequentially, and unload Nala's idle vision
+model first. Fish can be restarted after the build if additional host RAM is needed. Do not stop unrelated applications.
 The builder uses a pinned TensorRT 10.16.1 image, bounded workspace/batch profiles,
 and separately validates the saved engine with the exact deployment runtime.
 Optional `build_x2_engine.py --cp-precision fp32` trades more resources for predictor
