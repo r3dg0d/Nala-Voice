@@ -1,0 +1,24 @@
+[Unit]
+Description=Nala X2 incremental speech service
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.local/share/nala/voice/runtime.env
+Environment=NALA_X2_ENGINE_ROOT=%h/.local/share/nala/voice/x2-engine
+Environment=NALA_X2_POLICY_ROOT=%h/.local/share/nala/voice/x2streaming
+Environment=HF_HUB_OFFLINE=1
+Environment=OMP_NUM_THREADS=4
+Environment=MKL_NUM_THREADS=4
+Environment=ENGINE_OBSERVABILITY_LEVEL=daily
+WorkingDirectory=%h/.local/share/nala/voice/x2-engine
+ExecStart=%h/.local/share/nala/voice/x2-env/bin/python %h/.local/share/nala/voice/x2_tts_server.py
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
