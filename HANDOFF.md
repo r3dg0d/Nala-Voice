@@ -1,5 +1,7 @@
 # Handoff notes
 
+1.5 streaming/controller implementation is documented in docs/tts-streaming.md and docs/computer-use.md. New offline suite: nala-stream-tests. X2 is a separate pinned Python/TensorRT service; do not vendor its runtime or checkpoints into the Qt repository. Cold startup, PCM onset and physical audible onset are different measurements. Existing policy and turn-generation checks remain authoritative.
+
 For whoever works on this next — person or agent. Read this, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 

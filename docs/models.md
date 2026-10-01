@@ -1,5 +1,7 @@
 # Models
 
+1.5 voice resource budget: the local X2 service occupies about 5 GiB of VRAM (full process, including TensorRT). Fish fallback adds about 2.1 GiB. Reserve these alongside Whisper and the vision/main models; the runtime stays separate from Ollama. Do not keep the legacy Qwen service resident alongside X2 unless debugging. See [tts-streaming.md](tts-streaming.md).
+
 Nala runs three local models, each for what it is good at, and chooses between
 them per request. Nothing is ever sent to a cloud model: if a local model is
 missing or fails, another local one stands in, and if none can, she says so.

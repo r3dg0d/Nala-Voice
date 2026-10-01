@@ -13,11 +13,11 @@ your own voice — then she listens through whisper.cpp, handles simple commands
 everything else with the right one of **three local models** — a main model
 (Qwen3.8-27B) for reasoning and code, and two fast ones (`gpt-oss:20b`,
 `qwen3:30b-a3b`) for quick answers — through Ollama or llama.cpp. She answers in
-a speech bubble and aloud, starting on the first sentence while the rest is still
-being written, through Qwen3-TTS with Fish Speech as a fallback. She can act on
+a speech bubble and aloud, starting from causally committed text while the rest is still
+being written, through a local X2Streaming-TTS service with Fish Speech fallback. She can act on
 the desktop through a permissioned set of tools, and — only if you turn it on —
 keeps an episodic memory of what you worked on, with a privacy switch that works
-without any model. Nothing leaves your machine. See [The assistant](#the-assistant).
+without any model. Inference stays local; optional web retrieval sends public search requests when enabled. See [The assistant](#the-assistant).
 
 ```mermaid
 flowchart TD
@@ -31,17 +31,26 @@ flowchart TD
     ModelRouter -.->|optional| SpeedLLM[Speed: qwen3:30b-a3b]
     FastLLM --> Tools[Structured tools]
     MainLLM --> Tools
-    FastLLM --> TTS[Qwen3-TTS]
+    FastLLM --> TTS[Causal commitment → X2Streaming-TTS]
     MainLLM --> TTS
     TTS -.->|fallback| Fish[Fish Speech]
     TTS --> Audio
     DirectTools --> Audio
 ```
 
+## Streaming voice and computer use (1.5)
+
+The voice uses incremental text and PCM in one X2 session. Desktop controls use
+accessibility, crop/refinement, adaptive stabilization and independent before/after
+verification. See [streaming setup](docs/tts-streaming.md),
+[computer use](docs/computer-use.md) and [research notes](docs/streaming-research.md).
+`nala benchmark tts` runs silent local voice measurements; `nala latency` reports
+the latest turn. Optional semantic workflow memory retains existing privacy controls.
+
 ## Requirements
 
 - Qt 6.10 or newer (`Core Gui Widgets Quick Qml ShaderTools Test Network
-  Multimedia Sql Concurrent`)
+  Multimedia Sql Concurrent DBus WebSockets`)
 - `layer-shell-qt` 6.7+ — optional, but without it Nala is an ordinary window
   that the compositor will tile rather than a free-floating companion
 - A Wayland compositor supporting `wlr-layer-shell`; developed on Hyprland
@@ -49,7 +58,7 @@ flowchart TD
 
 For the assistant, all optional and reported by `nala doctor` when missing:
 whisper.cpp, a model server (Ollama, or llama.cpp / anything OpenAI-compatible),
-a Qwen3-TTS server (OpenAI-compatible) and/or Fish Speech, `grim`, `wtype`,
+a local X2Streaming-TTS service and/or Fish Speech (legacy Qwen HTTP remains supported), `grim`, `wtype`,
 `ydotool`, `wpctl` and `playerctl` (volume and media), `wl-clipboard`.
 
 ## Install
@@ -200,9 +209,9 @@ missing.
 | Fast command router — pause memory, stop, open settings, open apps… without the model | implemented |
 | Three local models (main / fast / speed), routed per request, with fallback, GPU-aware loading and a running summary of older turns | implemented; measured on an RTX 4090, see [docs/models.md](docs/models.md) |
 | Ollama (native API: exact context window, keep-alive, thinking) or any OpenAI-compatible server, with tool calling and optional vision | implemented |
-| Streaming answers, spoken from the first full sentence; reasoning never spoken | implemented |
+| Streaming answers from causally committed text; reasoning never spoken | implemented |
 | Volume, media, clock, clipboard, notification, screenshot, lock, video recording, read-only commands: fast path and tools | implemented ([docs/tools.md](docs/tools.md)) |
-| Qwen3-TTS voice (OpenAI-compatible speech API) with automatic Fish Speech fallback | implemented; tested against fake servers, **not** a live Qwen3-TTS server ([docs/voice-pipeline.md](docs/voice-pipeline.md)) |
+| Native X2 streaming voice with Fish Speech fallback and legacy Qwen compatibility | implemented; offline fake-server tests and local CUDA benchmarks ([streaming setup](docs/tts-streaming.md)) |
 | Fish Speech voice, streamed, interruptible, with a text fallback | implemented (tested against its API; see [docs/AI.md](docs/AI.md)) |
 | Per-stage latency timing, `nala latency`, `nala benchmark`, `nala doctor` | implemented |
 | Speech bubble, yes/no confirmation card, listening meter | implemented |
@@ -276,7 +285,8 @@ More: [architecture](docs/ARCHITECTURE.md) · [models](docs/models.md) ·
 scripts/test.sh     # behaviour, headless
 scripts/poses.sh    # render one PNG per form, for comparing against the reference
 ctest --test-dir build   # behaviour, the install layout, and the assistant's unit tests
-build/nala-model-tests   # routing, fallback, streaming, voice chain, context, tools (139 tests, no server needed)
+build/nala-model-tests   # routing, fallback, context and tools; no server needed
+build/nala-stream-tests  # native streaming protocol and closed-loop desktop fixtures
 
 build/nala --film build/film   # record a sequence at 60 fps, one PNG per frame
 ```

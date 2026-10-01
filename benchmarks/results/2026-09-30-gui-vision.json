@@ -1,0 +1,318 @@
+{
+    "dataset": "6 synthetic export dialogs (3 dense, small controls); actual local VLM predictions, simulated pointer/clicks",
+    "fixtures": [
+        {
+            "actions": 1,
+            "clicks": 1,
+            "confidence": 0.99,
+            "elapsed_ms": 10568,
+            "fixture": 0,
+            "grounding_method": "vision",
+            "initial_error_px": 2.23606797749979,
+            "model_calls": 5,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 648,
+                    "y": 737
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 537,
+                    "y": 644
+                },
+                {
+                    "bbox": [
+                        305,
+                        423,
+                        687,
+                        610
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "change": "The BEFORE screen shows a dialog with text and buttons. The AFTER screen shows the same text and buttons, but with magenta boxes highlighting individual tiles or areas on the screen, including the text 'Export complete' and various empty spaces."
+                },
+                {
+                    "success": true
+                }
+            ],
+            "observation_hash": "4010100000000101",
+            "observed_effect": "The BEFORE screen shows a dialog with text and buttons. The AFTER screen shows the same text and buttons, but with magenta boxes highlighting individual tiles or areas on the screen, including the text 'Export complete' and various empty spaces.",
+            "ok": true,
+            "refined_error_px": 3.605551275463989,
+            "refinements": 1,
+            "requests": 5,
+            "retries": 0,
+            "screenshots": 7,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "typed": false,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "confidence": 0.99,
+            "elapsed_ms": 4243,
+            "fixture": 1,
+            "grounding_method": "vision",
+            "initial_error_px": 2,
+            "model_calls": 5,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 499,
+                    "y": 588
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 499,
+                    "y": 542
+                },
+                {
+                    "bbox": [
+                        316,
+                        412,
+                        694,
+                        600
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "change": "Magenta boxes highlight different areas: top-left, top-middle, middle-right, bottom-right, and around text 'Export complete'."
+                },
+                {
+                    "success": true
+                }
+            ],
+            "observation_hash": "40400c0c00000101",
+            "observed_effect": "Magenta boxes highlight different areas: top-left, top-middle, middle-right, bottom-right, and around text 'Export complete'.",
+            "ok": true,
+            "refined_error_px": 1,
+            "refinements": 1,
+            "requests": 5,
+            "retries": 0,
+            "screenshots": 7,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "typed": false,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "confidence": 0.99,
+            "elapsed_ms": 3195,
+            "fixture": 2,
+            "grounding_method": "vision",
+            "initial_error_px": 1.4142135623730951,
+            "model_calls": 5,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 347,
+                    "y": 443
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 467,
+                    "y": 483
+                },
+                {
+                    "bbox": [
+                        312,
+                        400,
+                        688,
+                        592
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "change": "The 'Export' button is replaced with the text 'Export complete' in magenta boxes."
+                },
+                {
+                    "success": true
+                }
+            ],
+            "observation_hash": "4040000006000101",
+            "observed_effect": "The 'Export' button is replaced with the text 'Export complete' in magenta boxes.",
+            "ok": true,
+            "refined_error_px": 2,
+            "refinements": 1,
+            "requests": 5,
+            "retries": 0,
+            "screenshots": 7,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "typed": false,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "confidence": 0.99,
+            "elapsed_ms": 3232,
+            "fixture": 3,
+            "grounding_method": "vision",
+            "initial_error_px": 4.123105625617661,
+            "model_calls": 5,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 612,
+                    "y": 714
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 507,
+                    "y": 630
+                },
+                {
+                    "bbox": [
+                        407,
+                        464,
+                        607,
+                        567
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "change": "The 'Export' button is now labeled 'Export complete' and is surrounded by magenta boxes."
+                },
+                {
+                    "success": true
+                }
+            ],
+            "observation_hash": "40100006010000",
+            "observed_effect": "The 'Export' button is now labeled 'Export complete' and is surrounded by magenta boxes.",
+            "ok": true,
+            "refined_error_px": 3.605551275463989,
+            "refinements": 1,
+            "requests": 5,
+            "retries": 0,
+            "screenshots": 7,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "typed": false,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "confidence": 0.99,
+            "elapsed_ms": 3206,
+            "fixture": 4,
+            "grounding_method": "vision",
+            "initial_error_px": 2.23606797749979,
+            "model_calls": 5,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 462,
+                    "y": 567
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 505,
+                    "y": 528
+                },
+                {
+                    "bbox": [
+                        394,
+                        457,
+                        594,
+                        557
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "change": "The 'Export' button is now disabled and replaced by the text 'Export complete' in magenta boxes."
+                },
+                {
+                    "success": true
+                }
+            ],
+            "observation_hash": "40000c06010000",
+            "observed_effect": "The 'Export' button is now disabled and replaced by the text 'Export complete' in magenta boxes.",
+            "ok": true,
+            "refined_error_px": 2.23606797749979,
+            "refinements": 1,
+            "requests": 5,
+            "retries": 0,
+            "screenshots": 7,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "typed": false,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "confidence": 0.99,
+            "elapsed_ms": 3508,
+            "fixture": 5,
+            "grounding_method": "vision",
+            "initial_error_px": 2,
+            "model_calls": 5,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 316,
+                    "y": 421
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 437,
+                    "y": 468
+                },
+                {
+                    "bbox": [
+                        403,
+                        455,
+                        605,
+                        555
+                    ],
+                    "confidence": 0.99,
+                    "matches": true
+                },
+                {
+                    "change": "The 'Export' button is highlighted in blue in the BEFORE image, while in the AFTER image, it is replaced by the text 'Export complete' within a magenta box. Other magenta boxes appear in the AFTER image, indicating changed tiles, but no other UI elements are visible in the BEFORE image that are not also present in the AFTER image."
+                },
+                {
+                    "success": true
+                }
+            ],
+            "observation_hash": "40000002010000",
+            "observed_effect": "The 'Export' button is highlighted in blue in the BEFORE image, while in the AFTER image, it is replaced by the text 'Export complete' within a magenta box. Other magenta boxes appear in the AFTER image, indicating changed tiles, but no other UI elements are visible in the BEFORE image that are not also present in the AFTER image.",
+            "ok": true,
+            "refined_error_px": 1,
+            "refinements": 1,
+            "requests": 5,
+            "retries": 0,
+            "screenshots": 7,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "typed": false,
+            "verified": true
+        }
+    ],
+    "model": "qwen3-vl:8b-instruct-q4_K_M"
+}

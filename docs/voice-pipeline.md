@@ -16,10 +16,10 @@ flowchart TD
     Fast --> Tools[Structured tools<br/>validated, permissioned]
     Main --> Tools
     Speed --> Tools
-    Fast --> Sent[Sentence streaming]
+    Fast --> Sent[Causal text commitment]
     Main --> Sent
     Speed --> Sent
-    Sent --> TTS[Qwen3-TTS]
+    Sent --> TTS[X2 streaming session]
     TTS -. fails .-> Fish[Fish Speech]
     TTS --> Out[Audio out]
     Fish --> Out
@@ -63,62 +63,22 @@ model call and, if you prefer (`tts.confirmCommands = false`), no spoken
 
 ## The model, and speaking while it writes
 
-The model streams its answer. Nala does **not** speak raw tokens: text is cut
-into sentences, and the voice starts on the first *sentence*, never a clipped
-fragment.
+`SentenceStream` now commits complete clauses or safe word boundaries on a
+configurable deadline. Sentences remain a conservative mode. Unfinished words,
+URLs, abbreviations, numbers, open code fences and Markdown syntax are held or
+sanitized. The existing ThinkFilter removes reasoning before commitment.
 
-```
-model:  "Sure. I can open Firefox for you. Would you also like me to restore your tabs?"
-voice:  "Sure. I can open Firefox for you."   <- starts here, before the rest is written
-        "Would you also like me to restore your tabs?"
-```
+`auto` selects X2Streaming-TTS then Fish Speech. X2 consumes committed text over
+its native WebSocket protocol and returns 24 kHz mono signed 16-bit PCM while
+the LLM continues generating. One logical session carries acoustic context;
+physical socket reuse does not carry previous conversations into a new turn.
+Stop discards text, inference and playback. A failure before PCM may use Fish;
+a failure after PCM stops without replaying already spoken words.
 
-Abbreviations and decimals ("Dr. Smith", "3.5", "e.g.") do not end a sentence,
-markdown decoration is stripped, code blocks are not read aloud, and a run-on is
-broken at a comma. **Reasoning is never spoken**: whether a server sends it as a
-separate field or as `<think>` tags split across chunks, it is removed before it
-reaches the voice, the bubble or the conversation history.
-
-## The voice: Qwen3-TTS, with Fish Speech as the fallback
-
-`tts.engine`: `auto` (default: Qwen3-TTS, then Fish Speech), `qwen`, `fish`, or
-`none`.
-
-**Qwen3-TTS** is reached through any OpenAI-compatible speech server (several
-community servers for Qwen3-TTS expose this, and vLLM-Omni serves the same
-route):
-
-```
-POST {tts.qwen.endpoint}/v1/audio/speech
-{"model": "tts-1", "input": "...", "voice": "alloy", "response_format": "pcm", "stream": true}
-```
-
-With streaming, the reply is raw 16-bit mono PCM as it is generated. The sample
-rate is not in the stream, so it is a setting (`tts.qwen.sampleRate`, 24000 for
-Qwen3-TTS); a WAV reply's own header is used instead when there is one. The
-defaults are `http://127.0.0.1:8880`, model `tts-1`, voice `alloy`
-(`tts.qwen.endpoint`, `.model`, `.voice`); `tts.qwen.instruct` sends an optional
-style prompt to servers that support one. The repository includes loopback adapters
-for the official Qwen3-TTS 0.6B CustomVoice and Fish Speech 1.5 inference engines:
-see [local voice services](local-voice-services.md). Both have been tested with
-real model-generated audio, including Nala's primary-to-fallback chain.
-
-The included adapters generate a complete sentence before returning its audio.
-They support Nala's PCM/WAV requests but do not provide incremental model streaming.
-A streaming-capable server can still use the same client protocol. HTTP error
-responses are never played as PCM, and voice health checks require a successful
-HTTP status.
-
-**Fish Speech** (`tts.endpoint`, default `http://127.0.0.1:8080`) takes over
-when Qwen3-TTS is not answering. A sentence that fails before any audio has
-played is retried on Fish Speech, so the reply continues without a gap; an engine
-that failed is skipped for 30 seconds so later sentences do not each pay for the
-timeout. If neither answers, the reply is shown in the bubble and the voice stays
-off until that cooldown ends (then she tries again) or you change a `tts.*`
-setting. Trailing slashes on `tts.qwen.endpoint` / `tts.endpoint` are normalised
-before `/v1/...` routes are joined. `nala tts status` shows both and syncs the sticky voice-broken flag with those probes (same recovery as doctor).
-
-Command execution never waits on the voice.
+`qwen` retains the legacy HTTP implementation for compatibility, `fish` selects
+the fallback alone and `none` is intentional silence. Legacy Qwen endpoints and
+model IDs are preserved. See [tts-streaming.md](tts-streaming.md) for installation,
+settings, measurements and limitations.
 
 ## Latency
 
@@ -138,16 +98,13 @@ TTS first audio: 180 ms
 Total perceived latency: 805 ms
 ```
 
-Stages: wake word, VAD (the end-of-speech window), STT, routing, LLM first
-token, LLM full response, TTS first audio, and command execution. "Perceived"
-adds the stages that are waited on in sequence (STT, routing, first token, first
-audio), or the command's own time when no model is involved. The wake-word stage
-is not reported yet: the detector's per-block time is far below a millisecond
-and is not part of the wait after you finish speaking.
-
-Measured on the development machine (RTX 4090), the 27B main model answering a
-casual question with thinking off: first token 449 ms, complete answer 1.26 s,
-no voice server installed. See [models.md](models.md) for the benchmark.
+Stages include STT, routing, model first token/full response, first text commit,
+X2 session start, first PCM, synthesis completion and output underruns. Commit,
+session, PCM and completion are elapsed since request handling starts. PCM is
+measured at Qt output submission, not at the physical speaker; device buffering
+adds latency. The silent benchmark does not measure output underruns or physical
+sound. If PCM is available, perceived timing uses that single elapsed value to
+avoid adding overlapping synthesis/model stages. See [tts-streaming.md](tts-streaming.md).
 
 ## Fitting it in VRAM
 

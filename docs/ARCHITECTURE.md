@@ -1,5 +1,7 @@
 # Architecture
 
+1.5 adds `x2tts.*` (native incremental WebSocket), `ttsbenchmark.*`, optional `accessibility.*`, native `visualdiff.*`, and semantic `guimemory.*`. `GuiGrounder` owns refinement, stabilization, typing and verification; `assistant_gui.cpp` supplies permission/privacy-aware desktop ports. See [computer-use.md](computer-use.md) and [tts-streaming.md](tts-streaming.md).
+
 Nala is two things in one process: the companion (unchanged in spirit from
 upstream) and the assistant, which is built as a static library
 (`nala_assistant`) so its unit tests link exactly the code the app runs.
@@ -86,7 +88,7 @@ an allow-listed set of these settings between machines.
 | `sentencestream.*` | Pure: sentence chunking for speech, markdown clean-up, and the filter that keeps `<think>` out of the voice. |
 | `latency.*` | Per-stage timings and the report. |
 | `systemtools.*` | Pure: command lines for the desktop tools, and the allow-list. |
-| `tts.*` | Qwen3-TTS (OpenAI-compatible speech API) and the chain that falls back to Fish Speech. |
+| `tts.*`, `x2tts.*` | Incremental native X2 WebSocket, legacy Qwen HTTP compatibility and the Fish fallback chain. |
 | `assistant_voice.cpp` | The wake word in the assistant: arming, the chime, training sessions, model download, profiles, setup. |
 | `identity.*` | Who she is, and everything derived from it; profiles. |
 | `wakeword.*` | Wake-word engine: ONNX features, negative bank, trainer (augmentation, logistic regression, DTW templates, calibration), gate, `WakeWordBackend` / `NeuralBackend`. |

@@ -1,0 +1,1 @@
+{"cold_to_ready_ms": 5325.9, "cold_to_first_pcm_ms": 5363.8, "ready_to_first_pcm_ms": 38.0, "model_load_and_prewarm_ms": 4479.3, "output_device": false}

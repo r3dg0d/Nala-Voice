@@ -1,0 +1,23 @@
+{
+  "method": "Whisper on owned synthetic fixture WAV; no microphone recording",
+  "run": "streaming-trained token input, before final guarded-delivery restart",
+  "limitations": "Not a listening study or independent word-error-rate score; long response has an audible pronunciation stumble near a segment boundary",
+  "fixtures": [
+    {
+      "case": "long response",
+      "transcription": "The desktop assistant first checks native tools and\n accessibility metadata.\n When those interfaces cannot identify the requested control\n,\n it observes the focused window, zooms into the relevant\n area,\n and refines the pointer position.\n After an action, it waits for the interface to stabilize\n and compares the visible changes against the ex-...\n ...act-come.\n Each step remains interruptable and follows your permission\n settings."
+    },
+    {
+      "case": "punctuation",
+      "transcription": "Yes, that works. Next, choose settings. Is the panel open?\n Great!"
+    },
+    {
+      "case": "numbers",
+      "transcription": "The temperature is 25 degrees.\n The distance is 3.5 kilometers, and the cost is $1,000."
+    },
+    {
+      "case": "technical",
+      "transcription": "The C++ Service Streams PCM audio at 24 kHz over a local\n WebSocket connection."
+    }
+  ]
+}

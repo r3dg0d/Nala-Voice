@@ -1,5 +1,7 @@
 # Local voice services
 
+Since 1.5, `auto` prefers the separate [X2 streaming service](tts-streaming.md), then Fish. The Qwen HTTP adapter below is legacy compatibility and useful for comparisons; avoid enabling it alongside X2 on limited VRAM.
+
 The two optional adapters use official model implementations locally on CUDA:
 
 | Service | Model | Loopback port | Output |
@@ -13,7 +15,7 @@ implement incremental inference. Model loading happens once per service startup.
 Both bind only to 127.0.0.1 and need no API key. Qwen's original `alloy` setting
 maps to Ryan; other CustomVoice speakers can be selected by their model names.
 
-Use `tts.engine = auto` in Nala's settings for Qwen followed by Fish. Explicit
+Use `tts.engine = qwen` for this legacy adapter; `auto` now tries X2 followed by Fish. Explicit
 `qwen` or `fish` selects only that engine and disables the other fallback.
 
 ## Installation on NixOS

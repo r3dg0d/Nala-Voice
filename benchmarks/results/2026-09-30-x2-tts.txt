@@ -1,0 +1,19 @@
+Silent TTS benchmark: first PCM and full synthesis measured locally; output underruns/physical audible onset: n/a.
+First request is not a cold model measurement: restart the service and inspect /nala/diagnostics load_ms for cold startup.
+case | first commit ms | first PCM ms (input start) | TTS first PCM ms (commit) | total ms | generated audio seconds | RTF (includes paced input) | engine
+first request (server cold/warm state must be measured separately) | 91 | 139 | 48 | 551 | 0.960 | 0.574 | x2streaming
+  X2 completed segments: 1; healthy state snapshots carried: 1
+warm confirmation | 71 | 110 | 39 | 503 | 0.960 | 0.524 | x2streaming
+  X2 completed segments: 1; healthy state snapshots carried: 1
+conversation | 365 | 413 | 48 | 1772 | 3.280 | 0.540 | x2streaming
+  X2 completed segments: 1; healthy state snapshots carried: 1
+long response | 367 | 412 | 45 | 12081 | 26.320 | 0.459 | x2streaming
+  X2 completed segments: 2; healthy state snapshots carried: 1
+punctuation | 260 | 306 | 46 | 2539 | 5.440 | 0.467 | x2streaming
+  X2 completed segments: 1; healthy state snapshots carried: 1
+numbers | 195 | 238 | 43 | 3419 | 7.680 | 0.445 | x2streaming
+  X2 completed segments: 1; healthy state snapshots carried: 1
+technical | 351 | 398 | 47 | 3248 | 6.880 | 0.472 | x2streaming
+  X2 completed segments: 1; healthy state snapshots carried: 1
+interruption | 227 | 272 | 45 | 423 | 0.240 | 1.762 | x2streaming (cancelled 150 ms after first PCM)
+  X2 completed segments: 0; healthy state snapshots carried: 0

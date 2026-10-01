@@ -1,5 +1,7 @@
 # Setting up the local AI
 
+1.5 preferred voice runtime: a separate loopback X2 service using Qwen CustomVoice weights and verified streaming hooks. Vision remains separately configurable; structured tools and optional AT-SPI precede pixels. See [streaming setup](tts-streaming.md), [controller](computer-use.md) and [research](streaming-research.md).
+
 Each backend is optional. `nala doctor` shows what Nala can reach.
 
 ## Speech recognition — whisper.cpp

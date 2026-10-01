@@ -1,5 +1,7 @@
 # Tools and permissions
 
+1.5 adds `computer.perform` (semantic goal, expected effect, optional keyboard strategy or saved workflow ID) and `computer.workflows` (read matching optional semantic procedures). Controllers preserve all consequential-input confirmations; replay calls the existing guarded tools separately for each step. See [computer-use.md](computer-use.md).
+
 The model never runs shell commands of its own. It reaches the machine only
 through **typed tools**: each has a name, a JSON schema its arguments are
 checked against *before* anything runs, a risk level, and a category you can

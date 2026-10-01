@@ -1,76 +1,97 @@
-# Grounding desktop actions
+# Closed-loop computer use
 
-Use “click the export button” (`nala ask click the export button`). A single
-named click takes the command fast path into `computer.locate_and_click`; it
-needs no conversational model call to choose coordinates. App launches and
-window switches still use the application index and Hyprland metadata first.
-More complex requests can select the same typed tool through the model.
+Use native application/window/filesystem tools first. Named window focus uses
+Hyprland metadata and checks the active window; `computer.perform` is for the
+remaining controls. The model supplies a semantic goal and expected effect,
+not coordinates requested from the user. Existing low-level tools remain.
 
-The separate `GuiGrounder` observes the focused window, predicts a coarse
-point, crops around it, overlays numbered landmarks with unobscured centers, and asks the dedicated
-`llm.visionModel` to correct the point. It translates image/crop coordinates
-into logical desktop coordinates, including negative monitor origins and
-scaling. The last marker must converge within four source-image pixels by default,
-with confidence at least 0.90 and an explicit `ready` response. Those are
-model estimates, not calibrated probabilities. No reasoning trace is stored.
+## Controller
 
-The loop allows four refinements by default, up to two retries, and a
-60-second deadline. Crops follow estimates that approach their edge. Before
-clicking, a separate prediction on a clean crop returns the requested control's
-bounding box. The proposed point must lie inside that box with an inset margin;
-convergence alone cannot authorize a click. Nala also checks Hyprland's actual
-cursor position after moving and immediately before clicking.
+`GuiGrounder` owns the observation/action lifecycle. The production ports in
+`assistant_gui.cpp` enforce turn generation, privacy, focused-window identity,
+computer-input permission and cursor position on every consequential operation.
+Each retry goes through the existing confirmation system. Stop cancels models,
+captures, stabilization callbacks and future inputs.
 
-A fresh observation checks both the overall layout and a 64-pixel region around
-the target. Focus, capture geometry, image size or local layout changes stop the
-operation. After clicking, visual change alone is insufficient: the vision model
-must confirm the supplied `expected` state, or visible activation of the requested
-control. Rejected semantic verification does not automatically repeat the click.
-These checks reduce false successes but cannot prove that an application completed
-a business operation; a vision model can still misunderstand a control or result.
+1. Capture the focused window with its logical desktop bounds and application.
+2. Try exact, unique AT-SPI labels and roles; use fresh bounds immediately before
+   input. Missing accessibility falls back to vision; duplicates stop safely.
+3. Ground on an overview (at most 1280 pixels wide), then a native 640×480 crop.
+   Track numbered rings without obscuring control centers. Translate crop,
+   image and logical desktop coordinates explicitly, including negative origins.
+4. Refine absolute coordinates or bounded relative image offsets. Confidence
+   alone is insufficient: require convergence and an independent clean-crop
+   clickable-bounds check. Reject changes around the target before clicking.
+5. Sample at 80 ms until three consecutive visual samples settle, bounded by
+   1600 ms. A timeout stops rather than causing more input.
+6. Measure native-resolution changed tiles. Show localized before/after evidence
+   with highlighted changes. Describe observable changes without the intended
+   goal, then separately compare those facts with the expected effect.
+7. Return verified success or a reason to replan. No visible response permits
+   bounded, newly authorized re-grounding (default two retries). A changed but
+   incorrect outcome, failed typing or changed application is not blindly retried.
 
-The tools accept `wholeMonitor: true` for taskbars/panels outside the focused
-window. Use `window.focus_target` first to select another application's window.
-Default window captures preserve small controls at higher resolution and avoid
-unrelated content elsewhere on the monitor.
+A popup can be observed and verified across window/layout changes only when it
+belongs to the same application and an expected effect was supplied. No further
+input is injected into the newly focused dialog by that action.
 
-All named visual actions are conservatively **high risk**: an arbitrary button
-may send, purchase, submit or delete. The existing confirmation card is used.
-A retry requires another confirmation, re-observation and re-grounding;
-refusing, stopping or disabling input prevents the next action. Existing
-coordinate tools remain available for debugging with their existing risks.
+## Accessibility and keyboard
 
-`computer.locate_and_type` focuses a field, asks the vision model to check its
-visible caret, checks window focus again, uses `wtype`, then captures the
-result. It rejects secret/payment/code fields and recognizable secret strings.
-It cannot prove DOM/accessibility focus or exact text correctness. Do not use
-it for secrets. A visual-change failure after typing is reported without
-retyping. Desktop focus can still change while a keyboard helper is running.
+The optional read-only Qt D-Bus AT-SPI client restricts traversal to the active
+window's process, visible/sensitive/enabled interactive elements, 256 nodes and
+1500 ms. It never enables global accessibility or reads unrelated application
+labels. Availability depends on the application's accessibility bridge. Browser
+controls can benefit from AT-SPI; no CDP endpoint, injected extension or separate
+DOM automation service is installed.
 
-| Setting | Default |
-| --- | --- |
-| `agent.gui.maxRefinements` | 4 (1–8) |
-| `agent.gui.maxRetries` | 2 (0–2; each requires confirmation) |
-| `agent.gui.tolerancePixels` | 4 (1–16) |
-| `agent.gui.coordinateSpace` | normalized_1000; pixels optional |
-| `agent.gui.cropZoom` | true |
-| `agent.gui.verifyActions` | true |
-| `llm.visionModel` | empty: inherits the configured LLM |
+`computer.perform` accepts explicit strategies `browser_address_bar`, `find`,
+`next_field`, `previous_field`, `next_item`, `previous_item`, or `click`.
+These use Ctrl+L, Ctrl+F, Tab, Shift+Tab, Down, Up, or grounding. Ctrl+L is
+restricted to recognized browsers. Keyboard actions still require permissions
+and visible verification. Text entry verifies field focus before typing and
+checks the resulting literal text afterward; it never automatically types twice.
 
-Capture remains in memory. The deterministic privacy gate checks focused and
-intersecting windows on the current workspace; private windows block the captured
-region. Sticky/special-workspace windows are checked conservatively. Hyprland,
-`grim`, `ydotoold` and `wtype` remain optional. NixOS's `/run/ydotoold/socket`
-is detected and passed to `ydotool` when its environment variable is absent.
-No AT-SPI, browser DOM bridge or trained grounding model is bundled.
+## Optional semantic memory
 
-The design adapts iterative marked feedback from
-[See, Point, Refine](https://arxiv.org/abs/2604.13019), spatial feedback from
-[Learning GUI Grounding](https://arxiv.org/abs/2509.21552), and coarse/fine
-perception from [GUI-Eyes](https://arxiv.org/abs/2601.09770). Existing structured
-tools complement screenshots, consistent with
-[Screenshots or Tools?](https://arxiv.org/abs/2608.03327).
-Nala implements inference-time orchestration; it does not reproduce their
-training, datasets or reported benchmark scores.
+`agent.gui.workflowMemory` defaults to **false**. Both it and ordinary memory
+recording must be enabled and unpaused. Trajectories retain redacted text,
+application, timestamp, observation hash, method, confidence, expected/observed
+effect, actions, refinements, retries and success. No screenshots are stored by
+this subsystem, and entered text is not retained as a replayable step.
 
-The default coordinate protocol is `agent.gui.coordinateSpace = normalized_1000`: model coordinates are explicitly converted from a 0–1000 image grid before crop and desktop transforms. Pixel-speaking backends can select `pixels`. `agent.gui.tolerancePixels` defaults to 4 and accepts 1–16 source-image pixels. This threshold controls convergence; it is not a guarantee of target accuracy.
+A successful same-app turn with two to eight verified semantic clicks can save
+a procedure. `computer.workflows` retrieves matching procedures as untrusted
+data; `computer.perform` with a workflow ID re-grounds and verifies each step
+through `Assistant::callTool`, including its own confirmation. Raw coordinates,
+arbitrary tool bodies and cross-app replay are rejected. Existing forget,
+retention, pause and screen-clear controls govern these records.
+
+## Settings and diagnostics
+
+Defaults: `agent.gui.enabled`, `accessibility`, `cropZoom`, `verifyActions`,
+`visualDiff`, `waitForStable` are true; `maxRefinements=4`, `maxRetries=2`,
+`tolerancePixels=4`, `stableIntervalMs=80`, `stableSamples=3`,
+`stableTimeoutMs=1600`. Bounds are validated by the settings schema.
+
+`developer.debug` logs the controller's structured result: actions, screenshots,
+model calls, refinements, retries, elapsed time, grounding method, confidence,
+observation hash and observed effect. These stay out of normal conversation.
+Confidence is a model signal, not a calibrated probability of success.
+
+Offline tests inject all desktop/model ports. `nala-agent-bench --vision MODEL`
+uses real local vision predictions on six synthetic export dialogs, with simulated
+inputs and independent target rectangles. It never moves the real pointer.
+Fixture success does not establish live desktop success or general GUI accuracy.
+
+## Local fixture results, 2026-09-30
+
+`qwen3-vl:8b-instruct-q4_K_M` hit and verified all six export-dialog fixtures.
+Final distance from the independent target center was 1–3.61 pixels. Warm
+fixtures took 3.2–4.2 s; the first fixture took 10.6 s including model startup.
+Grounding, clean target confirmation and evidence-first verification used real
+local model calls; pointer/clicks were simulated. This does not measure live
+AT-SPI support, real desktop success, scrolling reliability or general accuracy.
+[Raw results](../benchmarks/results/2026-09-30-gui-vision.json) include screenshot,
+model-call, refinement and timing counts. Offline controller tests additionally
+cover duplicate/disabled labels, stale target bounds, cancellation, unstable UI,
+relative offsets, popup windows and verified typing/keyboard actions.
