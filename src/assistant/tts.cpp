@@ -73,6 +73,10 @@ void QwenTts::synthesize(const QString &text) {
 void QwenTts::readMore() {
   if (!m_reply)
     return;
+  const int status = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  // JSON/HTML error bodies must not start audio and disable the fallback.
+  if (status < 200 || status >= 300)
+    return;
   const QByteArray bytes = m_reply->readAll();
   if (!m_formatSent) {
     m_header.append(bytes);
@@ -126,10 +130,8 @@ void QwenTts::check(std::function<void(QString)> done) {
   QNetworkReply *reply = m_network->get(request);
   connect(reply, &QNetworkReply::finished, this, [reply, done] {
     reply->deleteLater();
-    // Any HTTP answer means a server is there; servers differ on which routes
-    // they implement besides /v1/audio/speech.
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (status > 0)
+    if (status >= 200 && status < 300)
       done({});
     else
       done(reply->errorString());

@@ -176,8 +176,8 @@ speech bubble only — nothing fails. The request format was checked against
 the fish-speech source (`ServeTTSRequest`, `/v1/tts`); this repository's
 tests exercise the streaming parser with the formats it emits, and
 `liveFishSpeech` in `tests/assistant_tests.cpp` runs against a real server
-when `NALA_TEST_FISH` is set. It has not been run against a live Fish Speech
-install in this environment.
+when `NALA_TEST_FISH` is set. The lightweight local adapter has also been verified against real Fish Speech
+1.5 weights; see [local voice services](local-voice-services.md).
 
 ## Checking a setup
 

@@ -19,6 +19,8 @@ void Assistant::registerGuiTools() {
       "delete.",
       object(
           {{"target", string("Visible control description", 300)},
+           {"wholeMonitor",
+            boolean("Use only for panels/taskbars outside the focused window")},
            {"expected", string("Expected visible state after clicking", 300)}},
           {"target"}),
       Risk::High, "computer",
@@ -29,22 +31,24 @@ void Assistant::registerGuiTools() {
       [this](const QJsonObject &a, Tool::Done done) {
         runGuiTarget(a, done);
       }});
-  m_tools.add(Tool{"computer.locate_and_type",
-                   "Focus a visible text field by description, verify it, type "
-                   "ordinary text, and observe the result. Never use this for "
-                   "passwords, tokens, payment details or verification codes.",
-                   object({{"target", string("Visible text field", 300)},
-                           {"text", string("Ordinary text to enter", 4000)}},
-                          {"target", "text"}),
-                   Risk::High, "computer",
-                   [](const QJsonObject &a) {
-                     return "Focus and type into " +
-                            a.value("target").toString();
-                   },
-                   nullptr,
-                   [this](const QJsonObject &a, Tool::Done done) {
-                     runGuiTarget(a, done);
-                   }});
+  m_tools.add(
+      Tool{"computer.locate_and_type",
+           "Focus a visible text field by description, verify it, type "
+           "ordinary text, and observe the result. Never use this for "
+           "passwords, tokens, payment details or verification codes.",
+           object({{"target", string("Visible text field", 300)},
+                   {"wholeMonitor",
+                    boolean("Use only for fields outside the focused window")},
+                   {"text", string("Ordinary text to enter", 4000)}},
+                  {"target", "text"}),
+           Risk::High, "computer",
+           [](const QJsonObject &a) {
+             return "Focus and type into " + a.value("target").toString();
+           },
+           nullptr,
+           [this](const QJsonObject &a, Tool::Done done) {
+             runGuiTarget(a, done);
+           }});
 }
 void Assistant::runGuiTarget(const QJsonObject &a, Tool::Done done) {
   if (m_gui) {
@@ -85,7 +89,9 @@ void Assistant::runGuiTarget(const QJsonObject &a, Tool::Done done) {
   config.thinking = "off";
   vision->configure(config);
   GuiGrounder::Ports ports;
-  ports.capture = [this, focusedWindow, allowed](auto callback) {
+  ports.capture = [this, focusedWindow, allowed,
+                   wholeMonitor =
+                       a.value("wholeMonitor").toBool()](auto callback) {
     const auto window = desktop::activeWindow();
     const auto monitor = desktop::focusedMonitor();
     if (focusedWindow->isEmpty())
@@ -95,26 +101,34 @@ void Assistant::runGuiTarget(const QJsonObject &a, Tool::Done done) {
                "Screen is private or window/monitor metadata is unavailable");
       return;
     }
-    // A whole-monitor observation may include other visible private
-    // windows.
+    const QRect region = wholeMonitor
+                             ? monitor.geometry
+                             : window.geometry.intersected(monitor.geometry);
+    if (region.isEmpty()) {
+      callback(GuiGrounder::Frame{}, "Focused window geometry is unavailable");
+      return;
+    }
+    // Check only the visible workspace and the region actually captured.
     for (const auto &w : desktop::windows())
-      if (w.geometry.intersects(monitor.geometry) && !allowed(w)) {
+      if ((w.workspace == window.workspace || w.workspace < 0) &&
+          w.geometry.intersects(region) && !allowed(w)) {
         callback(GuiGrounder::Frame{},
                  "A private window intersects this monitor");
         return;
       }
     desktop::capture(
-        {}, monitor.name,
-        [this, window, monitor, callback, allowed](QImage image,
-                                                   QString error) {
+        region, {},
+        [this, window, region, wholeMonitor, monitor, callback,
+         allowed](QImage image, QString error) {
           const auto current = desktop::activeWindow();
-          if (current.address != window.address || !allowed(current)) {
+          if (current.address != window.address || !allowed(current) ||
+              (!wholeMonitor &&
+               current.geometry.intersected(monitor.geometry) != region)) {
             callback(GuiGrounder::Frame{},
                      "Focus/privacy changed while observing");
             return;
           }
-          callback(GuiGrounder::Frame{image, monitor.geometry, window.address},
-                   error);
+          callback(GuiGrounder::Frame{image, region, window.address}, error);
         },
         this);
   };
@@ -152,15 +166,29 @@ void Assistant::runGuiTarget(const QJsonObject &a, Tool::Done done) {
                                                  QString::fromLatin1(
                                                      bytes.toBase64())}}}}}}}});
   };
-  ports.point = [this, turn](QPoint p) {
-    return turn == m_turn && categories().contains("computer") &&
-           desktop::moveCursor(p.x(), p.y());
+  const auto expectedCursor = std::make_shared<QPoint>();
+  ports.point = [this, turn, expectedCursor](QPoint p) {
+    if (turn != m_turn || !categories().contains("computer") ||
+        !desktop::moveCursor(p.x(), p.y()))
+      return false;
+    const auto actual = desktop::cursorPosition();
+    if (!actual || (*actual - p).manhattanLength() > 2)
+      return false;
+    *expectedCursor = p;
+    return true;
   };
-  ports.click = [this, turn](QString *error) {
+  ports.click = [this, turn, focusedWindow, expectedCursor](QString *error) {
+    const auto actual = desktop::cursorPosition();
+    if (!actual || (*actual - *expectedCursor).manhattanLength() > 2 ||
+        desktop::activeWindow().address != *focusedWindow) {
+      *error = "Pointer or focus moved before clicking; stopped";
+      return false;
+    }
     return turn == m_turn && categories().contains("computer") &&
            desktop::click(1, 1, error);
   };
   GuiGrounder::Options options;
+  options.confirmTarget = true;
   options.maxRefinements = m_settings->integer("agent.gui.maxRefinements");
   options.tolerancePixels = m_settings->integer("agent.gui.tolerancePixels");
   ports.authorizeRetry =

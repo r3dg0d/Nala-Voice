@@ -1119,7 +1119,7 @@ private slots:
 
   void fishTakesOverWhenQwenIsDown() {
     FakeServer qwenSrv, fishSrv;
-    qwenSrv.replies["/v1/audio/speech"] = {500, "{}", {}};
+    qwenSrv.replies["/v1/audio/speech"] = {500, R"({"error":"Speech generation is unavailable"})", {}};
     fishSrv.replies["/v1/tts"].body = audio::wav(QByteArray(1000, '\x02'), 44100);
     QNetworkAccessManager net;
     QwenTts qwen(&net);
@@ -1266,6 +1266,36 @@ private slots:
     QCOMPARE(fishSrv.paths.count("/v1/tts"), 1); // second sentence did not need fish
   }
 
+  void liveLocalVoiceChain() {
+    if (qEnvironmentVariableIsEmpty("NALA_TEST_VOICES"))
+      QSKIP("Set NALA_TEST_VOICES=1 for both local speech services");
+    QNetworkAccessManager net;
+    QwenTts qwen(&net);
+    QwenTts::Config config;
+    config.endpoint = QUrl("http://127.0.0.1:8880");
+    config.streaming = true;
+    qwen.configure(config);
+    FishSpeech fish(&net);
+    fish.configure(QUrl("http://127.0.0.1:8080"), {}, true, {});
+    TtsChain chain;
+    chain.setEngines({&qwen, &fish});
+    QSignalSpy done(&chain, &TextToSpeech::done);
+    QSignalSpy failed(&chain, &TextToSpeech::failed);
+    QSignalSpy audio(&chain, &TextToSpeech::audio);
+    chain.synthesize("The primary voice is working.");
+    QTRY_VERIFY_WITH_TIMEOUT(done.size() + failed.size() > 0, 120000);
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(chain.lastEngine(), QString("qwen3-tts"));
+    QVERIFY(audio.size() > 0);
+    done.clear(); audio.clear();
+    config.endpoint = QUrl("http://127.0.0.1:1");
+    qwen.configure(config);
+    chain.synthesize("The fallback voice is working.");
+    QTRY_VERIFY_WITH_TIMEOUT(done.size() + failed.size() > 0, 120000);
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(chain.lastEngine(), QString("fish-speech"));
+    QVERIFY(audio.size() > 0);
+  }
   void voiceBrokenRecoversAfterTtsCooldown() {
     Rig rig;
     rig.a->setTtsCooldownMsForTest(40);

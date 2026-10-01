@@ -11,6 +11,7 @@
 #include <QStringList>
 #include <QVector>
 #include <functional>
+#include <optional>
 
 // The machine, as the agent and screen memory see it. Everything that talks to
 // the compositor or runs a helper program is here, and every helper is run
@@ -43,6 +44,7 @@ bool validAddress(const QString &address);
 bool focusWindow(const QString &address);
 bool closeWindow(const QString &address);
 bool moveCursor(int x, int y);
+std::optional<QPoint> cursorPosition();
 
 // --- applications -------------------------------------------------------------
 

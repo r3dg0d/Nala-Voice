@@ -1,0 +1,21 @@
+[Unit]
+Description=Nala fish local speech server
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/nala/voice/fish-speech
+EnvironmentFile=%h/.local/share/nala/voice/runtime.env
+Environment=PYTHONPATH=%h/.local/share/nala/voice/fish-speech
+Environment=NALA_FISH_CHECKPOINT=%h/.local/share/nala/voice/fish-speech/checkpoints/fish-speech-1.5
+Environment=HF_HUB_OFFLINE=1
+Environment=OMP_NUM_THREADS=4
+ExecStart=%h/.local/share/nala/voice/fish-env/bin/python -m uvicorn fish_tts_server:app --app-dir %h/.local/share/nala/voice --host 127.0.0.1 --port 8080 --no-access-log
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

@@ -243,6 +243,10 @@ private slots:
     int calls = 0;
     auto ports = f.ports();
     ports.predict = [&](QImage img, QString prompt, auto cb) {
+      if (prompt.startsWith("Verify")) {
+        cb({{"success", true}});
+        return;
+      }
       ++calls;
       const bool coarse = prompt.contains("Estimate its center");
       QVERIFY(img.width() <= 640);
@@ -257,6 +261,104 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(!result.isEmpty(), 2000);
     QVERIFY(result["ok"].toBool());
     QCOMPARE(f.points.last(), QPoint(-640, 500));
+  }
+  void targetCenterRemainsVisible() {
+    GuiFixture f;
+    const auto marked = GuiGrounder::landmarks(f.image, {{320, 200}});
+    QCOMPARE(marked.pixel(320, 200), f.image.pixel(320, 200));
+  }
+  void localLayoutRace() {
+    GuiFixture f;
+    auto ports = f.ports();
+    ports.capture = [&](auto cb) {
+      if (++f.captures == 4) {
+        QPainter p(&f.image);
+        p.fillRect(QRect(306, 186, 28, 28), Qt::red);
+      }
+      cb(GuiGrounder::Frame{f.image, QRect(-1280, 100, 1280, 800), "window"},
+         {});
+    };
+    GuiGrounder::Options o;
+    o.crop = false;
+    GuiGrounder g(ports, o);
+    QJsonObject r;
+    g.start("blue button", {}, [&](auto result) { r = result; });
+    QTRY_VERIFY_WITH_TIMEOUT(!r.isEmpty(), 2000);
+    QVERIFY(!r["ok"].toBool());
+    QCOMPARE(f.clicks, 0);
+  }
+  void independentTargetRejectsWrongControl() {
+    GuiFixture f;
+    auto ports = f.ports();
+    const auto predict = ports.predict;
+    ports.predict = [&, predict](QImage image, QString prompt, auto cb) {
+      if (prompt.contains("CLEAN")) {
+        QCOMPARE(image.pixel(160, 120), f.image.pixel(320, 200));
+        cb({{"matches", false}, {"confidence", .99}});
+      } else {
+        predict(image, prompt, cb);
+      }
+    };
+    GuiGrounder::Options o;
+    o.crop = false;
+    o.confirmTarget = true;
+    GuiGrounder g(ports, o);
+    QJsonObject r;
+    g.start("blue button", {}, [&](auto result) { r = result; });
+    QTRY_VERIFY_WITH_TIMEOUT(!r.isEmpty(), 2000);
+    QVERIFY(!r["ok"].toBool());
+    QCOMPARE(f.clicks, 0);
+  }
+  void independentBoundingBoxMustContainClick() {
+    for (bool inside : {false, true}) {
+      GuiFixture f;
+      auto ports = f.ports();
+      const auto predict = ports.predict;
+      ports.predict = [predict, inside](QImage image, QString prompt, auto cb) {
+        if (prompt.contains("CLEAN"))
+          cb({{"matches", true},
+              {"confidence", .99},
+              {"bbox", inside ? QJsonArray{400, 400, 600, 600}
+                              : QJsonArray{50, 50, 150, 150}}});
+        else
+          predict(image, prompt, cb);
+      };
+      GuiGrounder::Options o;
+      o.crop = false;
+      o.confirmTarget = true;
+      GuiGrounder g(ports, o);
+      QJsonObject r;
+      g.start("blue button", {}, [&](auto result) { r = result; });
+      QTRY_VERIFY_WITH_TIMEOUT(!r.isEmpty(), 2000);
+      QCOMPARE(r["ok"].toBool(), inside);
+      QCOMPARE(f.clicks, inside ? 1 : 0);
+    }
+  }
+  void unrelatedAnimationIsNotSuccess() {
+    GuiFixture f;
+    auto ports = f.ports();
+    const auto predict = ports.predict;
+    ports.predict = [predict](QImage image, QString prompt, auto cb) {
+      if (prompt.startsWith("Verify"))
+        cb({{"success", false}});
+      else
+        predict(image, prompt, cb);
+    };
+    ports.click = [&](QString *) {
+      ++f.clicks;
+      QPainter p(&f.image);
+      p.fillRect(QRect(0, 0, 100, 100), Qt::red);
+      return true;
+    };
+    GuiGrounder::Options o;
+    o.crop = false;
+    GuiGrounder g(ports, o);
+    QJsonObject r;
+    g.start("blue button", {}, [&](auto result) { r = result; });
+    QTRY_VERIFY_WITH_TIMEOUT(!r.isEmpty(), 2000);
+    QVERIFY(!r["ok"].toBool());
+    QCOMPARE(f.clicks, 1);
+    QCOMPARE(r["retries"].toInt(), 0);
   }
   void schemaAndReopen() {
     QTemporaryDir d;
@@ -700,7 +802,11 @@ private slots:
     GuiFixture f;
     auto ports = f.ports();
     int predictions = 0;
-    ports.predict = [&](QImage, QString, auto callback) {
+    ports.predict = [&](QImage, QString prompt, auto callback) {
+      if (prompt.startsWith("Verify")) {
+        callback({{"success", true}});
+        return;
+      }
       ++predictions;
       callback({{"x", 500},
                 {"y", 500},
@@ -731,7 +837,7 @@ private slots:
     QVERIFY(::listen(listener, 8) == 0);
     QList<QByteArray> requests;
     std::jthread server([&] {
-      for (int i = 0; i < 7; ++i) {
+      for (int i = 0; i < 9; ++i) {
         pollfd ready{listener, POLLIN, 0};
         if (::poll(&ready, 1, 3000) <= 0)
           break;
@@ -748,7 +854,9 @@ private slots:
         QByteArray command(buffer, int(std::max<ssize_t>(0, size)));
         requests.append(command);
         const QByteArray reply =
-            i == 0 || command.contains("hl.dsp.")
+            i == 7   ? R"({"x":-30,"y":60})"
+            : i == 8 ? "{}"
+            : i == 0 || command.contains("hl.dsp.")
                 ? "ok"
                 : "error: dispatch in lua is a shorthand for hl.dispatch(...), "
                   "your syntax might need to be updated";
@@ -767,15 +875,21 @@ private slots:
     const bool lua = desktop::focusWindow("0x456");
     const bool close = desktop::closeWindow("0x456");
     const bool cursor = desktop::moveCursor(-30, 60);
+    const auto position = desktop::cursorPosition();
+    const auto invalidPosition = desktop::cursorPosition();
     qputenv("XDG_RUNTIME_DIR", oldRuntime);
     qputenv("HYPRLAND_INSTANCE_SIGNATURE", oldSignature);
     server.join();
     ::close(listener);
+    QCOMPARE(requests[7], QByteArray("j/cursorpos"));
     QVERIFY(legacy);
     QVERIFY(lua);
     QVERIFY(close);
     QVERIFY(cursor);
-    QCOMPARE(requests.size(), 7);
+    QCOMPARE(requests.size(), 9);
+    QVERIFY(position);
+    QCOMPARE(*position, QPoint(-30, 60));
+    QVERIFY(!invalidPosition);
     QCOMPARE(requests[2],
              QByteArray("dispatch hl.dsp.focus({window=\"address:0x456\"})"));
     QCOMPARE(

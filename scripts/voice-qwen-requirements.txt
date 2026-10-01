@@ -1,0 +1,10 @@
+qwen-tts==0.1.1
+torch==2.8.0
+torchaudio==2.8.0
+transformers==4.57.3
+numpy==2.2.6
+scipy==1.16.3
+scikit-learn==1.7.2
+fastapi==0.142.2
+uvicorn==0.54.0
+soundfile==0.14.0

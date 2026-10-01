@@ -1,0 +1,270 @@
+{
+    "dataset": "6 synthetic export dialogs (3 dense, small controls); actual local VLM predictions, simulated pointer/clicks",
+    "fixtures": [
+        {
+            "actions": 1,
+            "clicks": 1,
+            "elapsed_ms": 3302,
+            "fixture": 0,
+            "initial_error_px": 4.47213595499958,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 644,
+                    "y": 737
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 537,
+                    "y": 644
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 537,
+                    "y": 644
+                },
+                {
+                    "bbox": [
+                        308,
+                        423,
+                        688,
+                        612
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "success": true
+                }
+            ],
+            "ok": true,
+            "refined_error_px": 3.1622776601683795,
+            "refinements": 2,
+            "requests": 5,
+            "retries": 0,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "elapsed_ms": 1653,
+            "fixture": 1,
+            "initial_error_px": 2,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 499,
+                    "y": 588
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 499,
+                    "y": 542
+                },
+                {
+                    "bbox": [
+                        316,
+                        412,
+                        694,
+                        600
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "success": true
+                }
+            ],
+            "ok": true,
+            "refined_error_px": 1,
+            "refinements": 1,
+            "requests": 4,
+            "retries": 0,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "elapsed_ms": 1702,
+            "fixture": 2,
+            "initial_error_px": 1.4142135623730951,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 347,
+                    "y": 444
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 462,
+                    "y": 481
+                },
+                {
+                    "bbox": [
+                        324,
+                        407,
+                        697,
+                        597
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "success": true
+                }
+            ],
+            "ok": true,
+            "refined_error_px": 3.1622776601683795,
+            "refinements": 1,
+            "requests": 4,
+            "retries": 0,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "elapsed_ms": 1689,
+            "fixture": 3,
+            "initial_error_px": 4.123105625617661,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 612,
+                    "y": 714
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 507,
+                    "y": 630
+                },
+                {
+                    "bbox": [
+                        407,
+                        464,
+                        607,
+                        567
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "success": true
+                }
+            ],
+            "ok": true,
+            "refined_error_px": 3.605551275463989,
+            "refinements": 1,
+            "requests": 4,
+            "retries": 0,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "elapsed_ms": 1792,
+            "fixture": 4,
+            "initial_error_px": 2.23606797749979,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 462,
+                    "y": 567
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 498,
+                    "y": 527
+                },
+                {
+                    "bbox": [
+                        404,
+                        457,
+                        604,
+                        562
+                    ],
+                    "confidence": 0.999,
+                    "matches": true
+                },
+                {
+                    "success": true
+                }
+            ],
+            "ok": true,
+            "refined_error_px": 2.8284271247461903,
+            "refinements": 1,
+            "requests": 4,
+            "retries": 0,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "verified": true
+        },
+        {
+            "actions": 1,
+            "clicks": 1,
+            "elapsed_ms": 2427,
+            "fixture": 5,
+            "initial_error_px": 2,
+            "model_outputs": [
+                {
+                    "confidence": 0.99,
+                    "ready": false,
+                    "x": 316,
+                    "y": 421
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 433,
+                    "y": 468
+                },
+                {
+                    "confidence": 0.99,
+                    "ready": true,
+                    "x": 437,
+                    "y": 468
+                },
+                {
+                    "bbox": [
+                        403,
+                        453,
+                        605,
+                        557
+                    ],
+                    "confidence": 0.99,
+                    "matches": true
+                },
+                {
+                    "success": true
+                }
+            ],
+            "ok": true,
+            "refined_error_px": 1,
+            "refinements": 2,
+            "requests": 5,
+            "retries": 0,
+            "target": "the blue Export button",
+            "target_hit": true,
+            "verified": true
+        }
+    ],
+    "model": "qwen3-vl:8b-instruct-q4_K_M"
+}

@@ -10,6 +10,14 @@ lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 
 ## Unreleased
 
+## 1.4.2 — 2026-09-30
+
+- Add local Qwen3-TTS 0.6B and Fish Speech 1.5 API adapters with persistent-service setup instructions and live chain verification.
+- Prevent HTTP error bodies from starting PCM playback and blocking the fallback; require successful voice health responses.
+- Ground actions in the focused window, independently validate control bounds on a clean crop, verify actual cursor position, and reject local layout changes before clicking.
+- Require semantic post-action verification even without an explicit expected state. Keep landmark centers clear and recenter crops near their edges.
+- Add regression coverage for neighboring controls, target movement, unrelated animation, cursor metadata and real primary/fallback synthesis, plus smaller-control vision fixtures.
+
 ## 1.4.1 — 2026-09-30
 
 - Match window focus by app/title/workspace, refuse ambiguous selections, and verify the compositor's active window. Named focus commands stay on the fast path.

@@ -1600,16 +1600,17 @@ void Assistant::diagnose(std::function<void(QString)> done) {
   });
 
   const auto probe = [this](const QUrl &url,
-                            std::function<void(bool, QString)> then) {
+                            std::function<void(bool, QString)> then, bool requireSuccess = false) {
     QNetworkRequest request(url);
     request.setTransferTimeout(3000);
     QNetworkReply *reply = m_network.get(request);
-    connect(reply, &QNetworkReply::finished, this, [reply, then] {
+    connect(reply, &QNetworkReply::finished, this, [reply, then, requireSuccess] {
       reply->deleteLater();
       // Any HTTP answer at all means something is listening.
       const int status =
           reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-      then(status > 0, status > 0 ? QString() : reply->errorString());
+      const bool up = requireSuccess ? status >= 200 && status < 300 : status > 0;
+      then(up, up ? QString() : reply->errorString());
     });
   };
 
@@ -1665,7 +1666,7 @@ void Assistant::diagnose(std::function<void(QString)> done) {
         true);
     voiceKnown();
     finish();
-  });
+  }, true);
   QUrl health = withApiPath(QUrl(m_settings->string("tts.endpoint")),
                             QStringLiteral("/v1/health"));
   probe(health, [this, add, finish, voices, voiceKnown](bool up, QString error) {
@@ -1677,7 +1678,7 @@ void Assistant::diagnose(std::function<void(QString)> done) {
         true);
     voiceKnown();
     finish();
-  });
+  }, true);
 
   // The three models, what each is doing, and whether any spills off the GPU.
   refreshModels([this, add, finish] {

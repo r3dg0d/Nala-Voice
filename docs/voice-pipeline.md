@@ -98,9 +98,16 @@ rate is not in the stream, so it is a setting (`tts.qwen.sampleRate`, 24000 for
 Qwen3-TTS); a WAV reply's own header is used instead when there is one. The
 defaults are `http://127.0.0.1:8880`, model `tts-1`, voice `alloy`
 (`tts.qwen.endpoint`, `.model`, `.voice`); `tts.qwen.instruct` sends an optional
-style prompt to servers that support one. Nala was written against these servers'
-documentation and tested against a fake server; **it has not been run against a
-live Qwen3-TTS server on the development machine**, which had none installed.
+style prompt to servers that support one. The repository includes loopback adapters
+for the official Qwen3-TTS 0.6B CustomVoice and Fish Speech 1.5 inference engines:
+see [local voice services](local-voice-services.md). Both have been tested with
+real model-generated audio, including Nala's primary-to-fallback chain.
+
+The included adapters generate a complete sentence before returning its audio.
+They support Nala's PCM/WAV requests but do not provide incremental model streaming.
+A streaming-capable server can still use the same client protocol. HTTP error
+responses are never played as PCM, and voice health checks require a successful
+HTTP status.
 
 **Fish Speech** (`tts.endpoint`, default `http://127.0.0.1:8080`) takes over
 when Qwen3-TTS is not answering. A sentence that fails before any audio has

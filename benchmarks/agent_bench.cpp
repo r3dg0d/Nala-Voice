@@ -17,19 +17,30 @@
 static int visionBenchmark(const QString &model) {
   QNetworkAccessManager network;
   QJsonArray fixtures;
-  for (int fixture = 0; fixture < 3; ++fixture) {
+  for (int fixture = 0; fixture < 6; ++fixture) {
     QImage image(800, 500, QImage::Format_RGB32);
     image.fill(QColor("#f4f5f7"));
-    const QRect box(460 - fixture * 120, 350 - fixture * 75, 120, 44);
+    const bool dense = fixture >= 3;
+    const QRect box(460 - (fixture % 3) * 120, 350 - (fixture % 3) * 75,
+                    dense ? 64 : 120, dense ? 24 : 44);
     {
       QPainter painter(&image);
       QFont font = painter.font();
-      font.setPixelSize(20);
+      font.setPixelSize(dense ? 12 : 20);
       painter.setFont(font);
       painter.setPen(Qt::black);
       painter.drawText(QRect(30, 20, 500, 45), "Export settings");
       painter.drawText(QRect(30, 100, 550, 45),
                        "Choose the output format for your document.");
+      if (dense) {
+        for (int row = 0; row < 4; ++row) {
+          const QRect other(40 + row * 100, 120 + row * 35, 70, 24);
+          painter.setBrush(Qt::white);
+          painter.drawRect(other);
+          painter.drawText(other, Qt::AlignCenter,
+                           row % 2 ? "Import" : "Preview");
+        }
+      }
       painter.setBrush(QColor("#1769ce"));
       painter.drawRoundedRect(box, 6, 6);
       painter.setPen(Qt::white);
@@ -106,22 +117,31 @@ static int visionBenchmark(const QString &model) {
     };
     ports.click = [&](QString *) {
       ++clicks;
-      if (box.contains(last))
-        image.fill(Qt::green);
+      if (box.contains(last)) {
+        image.fill(Qt::white);
+        QPainter painter(&image);
+        painter.setPen(Qt::black);
+        QFont font = painter.font();
+        font.setPixelSize(32);
+        painter.setFont(font);
+        painter.drawText(image.rect(), Qt::AlignCenter, "Export complete");
+      }
       return true;
     };
     GuiGrounder::Options options;
     options.maxRetries = 0;
     options.normalized = true;
+    options.confirmTarget = true;
     GuiGrounder grounder(ports, options);
     QEventLoop loop;
     QJsonObject result;
     QElapsedTimer timer;
     timer.start();
-    grounder.start("the blue Export button", {}, [&](auto value) {
-      result = value;
-      loop.quit();
-    });
+    grounder.start("the blue Export button", "Export complete is displayed",
+                   [&](auto value) {
+                     result = value;
+                     loop.quit();
+                   });
     if (result.isEmpty())
       loop.exec();
     vision.cancel();
@@ -142,7 +162,8 @@ static int visionBenchmark(const QString &model) {
   std::puts(
       QJsonDocument(
           QJsonObject{{"model", model},
-                      {"dataset", "3 synthetic export dialogs; actual local "
+                      {"dataset", "6 synthetic export dialogs (3 dense, small "
+                                  "controls); actual local "
                                   "VLM predictions, simulated pointer/clicks"},
                       {"fixtures", fixtures}})
           .toJson(QJsonDocument::Indented)

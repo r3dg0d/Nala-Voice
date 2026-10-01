@@ -254,6 +254,9 @@ void FishSpeech::synthesize(const QString &text) {
 }
 
 void FishSpeech::readMore() {
+  const int status = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  if (status < 200 || status >= 300)
+    return;
   const QByteArray bytes = m_reply->readAll();
   if (!m_formatSent) {
     m_header.append(bytes);

@@ -179,6 +179,14 @@ bool closeWindow(const QString &address) {
                             "hl.dsp.window.close({window=\"" + selector +
                                 "\"})");
 }
+std::optional<QPoint> cursorPosition() {
+  const auto object = QJsonDocument::fromJson(hyprctl("j/cursorpos")).object();
+  if (!object.value("x").isDouble() || !object.value("y").isDouble())
+    return std::nullopt;
+  return QPoint(qRound(object.value("x").toDouble()),
+                qRound(object.value("y").toDouble()));
+}
+
 bool moveCursor(int x, int y) {
   return dispatchCompatible("movecursor " + QByteArray::number(x) + " " +
                                 QByteArray::number(y),

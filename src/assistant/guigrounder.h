@@ -21,6 +21,8 @@ public:
     bool verify = true;
     bool crop = true;
     bool normalized = false;
+    bool confirmTarget =
+        false; // production: inspect a clean crop before clicking
   };
   using Done = std::function<void(QJsonObject)>;
   struct Ports {
@@ -41,6 +43,7 @@ private:
   void observe(bool coarse);
   void predict(Frame frame, bool coarse);
   void act(Frame frame);
+  void confirmTarget(Frame frame, QPoint point);
   void finish(bool ok, QString error = {});
   Ports m_ports;
   Options m_options;
