@@ -110,6 +110,10 @@ public:
   virtual QString name() const = 0;
   virtual void synthesize(const QString &text) = 0;
   virtual void stop() = 0;
+  virtual bool incremental() const { return false; }
+  virtual void beginStream() {}
+  virtual void pushText(const QString &) {}
+  virtual void finishStream() {}
 
 signals:
   void format(int sampleRate, int channels, int bitsPerSample);

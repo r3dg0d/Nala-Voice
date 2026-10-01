@@ -15,11 +15,18 @@ public:
     int firstMinChars = 14; // the first chunk: short, so speech starts early
     int minChars = 28;      // later chunks are joined until they are this long
     int maxChars = 220;     // a run-on is cut at a comma or space
+    bool clauses = false;
   };
   SentenceStream() = default;
   explicit SentenceStream(Options options) : m_options(options) {}
 
   QStringList feed(const QString &delta);
+  // A latency deadline may release complete words, never a provisional suffix.
+  QStringList deadline();
+  void configure(Options options) {
+    m_options = options;
+    reset();
+  }
   QString flush();
   void reset();
   // Everything handed out so far, so the caller can tell what was already spoken.
@@ -30,7 +37,7 @@ public:
   static QString speakable(const QString &text);
 
 private:
-  QStringList drain(bool final);
+  QStringList drain(bool final, bool deadline = false);
 
   Options m_options;
   QString m_buffer;

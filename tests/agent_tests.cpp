@@ -100,6 +100,10 @@ struct GuiFixture {
              {});
         },
         [this](QImage, QString prompt, auto cb) {
+          if (prompt.startsWith("Describe")) {
+            cb({{"change", "The control changed visibly"}});
+            return;
+          }
           if (prompt.startsWith("Verify")) {
             cb({{"success", true}});
             return;
@@ -243,6 +247,10 @@ private slots:
     int calls = 0;
     auto ports = f.ports();
     ports.predict = [&](QImage img, QString prompt, auto cb) {
+      if (prompt.startsWith("Describe")) {
+        cb({{"change", "The control changed visibly"}});
+        return;
+      }
       if (prompt.startsWith("Verify")) {
         cb({{"success", true}});
         return;
@@ -803,6 +811,10 @@ private slots:
     auto ports = f.ports();
     int predictions = 0;
     ports.predict = [&](QImage, QString prompt, auto callback) {
+      if (prompt.startsWith("Describe")) {
+        callback({{"change", "The control changed visibly"}});
+        return;
+      }
       if (prompt.startsWith("Verify")) {
         callback({{"success", true}});
         return;
@@ -1123,6 +1135,32 @@ private slots:
     QCOMPARE(decide(tool->risk, "high"), Decision::Confirm);
     QVERIFY(
         !ToolRegistry::validate(tool->parameters, {{"target", 12}}).isEmpty());
+    const auto *perform = assistant.tools().find("computer.perform");
+    QVERIFY(perform);
+    QCOMPARE(perform->risk, Risk::High);
+    QCOMPARE(perform->riskFor({{"goal", "Export"}}), Risk::High);
+    QCOMPARE(perform->riskFor({{"workflowId", 1}}), Risk::Low);
+    // A workflow ID only grants retrieval; replay calls the high-risk semantic
+    // tool separately. Computer input still gates even read-only procedures.
+    QJsonObject result;
+    assistant.settings()->set("agent.input", false);
+    assistant.callTool("computer.perform", {{"goal", "Export"}},
+                       [&](auto r) { result = r; });
+    QVERIFY(!result["ok"].toBool());
+    result = {};
+    assistant.settings()->set("agent.enabled", true);
+    assistant.settings()->set("agent.input", true);
+    assistant.callTool("computer.perform", {{"goal", "Export"}},
+                       [&](auto r) { result = r; });
+    QVERIFY(result.isEmpty()); // confirmation before any capture or input
+    assistant.answer(false);
+    QVERIFY(!result["ok"].toBool());
+    result = {};
+    assistant.callTool("computer.perform", {{"workflowId", 1}},
+                       [&](auto r) { result = r; });
+    if (result.isEmpty())
+      assistant.answer(false);
+    QVERIFY(!result["ok"].toBool()); // memory disabled or confirmation declined
   }
 };
 QTEST_MAIN(AgentTests)

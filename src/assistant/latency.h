@@ -17,13 +17,19 @@ public:
     LlmDone,       // full response
     TtsFirstAudio, // first audio out of the voice
     Action,        // a deterministic command, end to end
+    FirstCommit,   // absolute elapsed time from this turn's start
+    TtsSessionStart,
+    FirstPcm, // PCM submitted to Qt output, not physical acoustic onset
+    TtsDone,
     StageCount
   };
 
+  LatencyTrace() { reset(); }
   void reset();
   void set(Stage stage, qint64 ms);
   bool has(Stage stage) const { return m_ms[stage] >= 0; }
   qint64 ms(Stage stage) const { return m_ms[stage]; }
+  void setUnderruns(int count) { m_underruns = std::max(0, count); }
 
   // What was felt: the sequential stages up to the first output.
   qint64 perceived() const;
@@ -34,5 +40,6 @@ public:
   static QString stageName(Stage stage);
 
 private:
-  qint64 m_ms[StageCount] = {-1, -1, -1, -1, -1, -1, -1, -1};
+  qint64 m_ms[StageCount];
+  int m_underruns = 0;
 };

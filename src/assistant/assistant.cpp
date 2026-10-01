@@ -1,14 +1,15 @@
 #include "assistant.h"
-#include "websearch.h"
 #include "audio.h"
 #include "contextbudget.h"
 #include "eventlog.h"
-#include "screenmemory.h"
 #include "guigrounder.h"
+#include "guimemory.h"
 #include "retrieval.h"
+#include "screenmemory.h"
 #include "settings.h"
 #include "speech.h"
 #include "tts.h"
+#include "websearch.h"
 
 #include <QBuffer>
 #include <QDateTime>
@@ -132,10 +133,21 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
     m_voiceLevel = level;
     emit levelsChanged();
   });
+  connect(m_speaker, &Speaker::started, this, [this] {
+    if (m_speaking && !m_chiming && m_turnClock.isValid() &&
+        !m_latency.has(LatencyTrace::FirstPcm)) {
+      m_latency.set(LatencyTrace::FirstPcm, m_turnClock.elapsed());
+      m_lastLatency = m_latency;
+    }
+  });
   connect(m_speaker, &Speaker::finished, this, [this] {
     if (m_chiming) {
       m_chiming = false;
       return;
+    }
+    if (m_latency.has(LatencyTrace::TtsFirstAudio)) {
+      m_latency.setUnderruns(m_speaker->underruns());
+      m_lastLatency = m_latency;
     }
     if (!m_synthesizing)
       speakNext();
@@ -161,6 +173,7 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
   wireSpeechBackend(m_whisperCli);
 
   m_fish = new FishSpeech(&m_network, this);
+  m_x2 = new X2Tts(this);
   m_qwen = new QwenTts(&m_network, this);
   m_tts = new TtsChain(this);
   connect(m_tts, &TextToSpeech::format, this,
@@ -171,7 +184,15 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
               m_tts->stop();
           });
   connect(m_tts, &TextToSpeech::audio, m_speaker, &Speaker::append);
+  connect(m_x2, &X2Tts::sessionStarted, this, [this] {
+    if (m_turnClock.isValid() && !m_latency.has(LatencyTrace::TtsSessionStart))
+      m_latency.set(LatencyTrace::TtsSessionStart, m_turnClock.elapsed());
+  });
   connect(m_tts, &TextToSpeech::done, this, [this] {
+    if (m_turnClock.isValid()) {
+      m_latency.set(LatencyTrace::TtsDone, m_turnClock.elapsed());
+      m_lastLatency = m_latency;
+    }
     m_synthesizing = false;
     if (m_speaker->playing())
       m_speaker->finish();
@@ -204,6 +225,7 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
     m_streamOpen = false;
     m_streamSpeaking = false;
     m_sentences.reset();
+    m_commitTimer.stop();
     m_log->record("error", "llm", {{"reason", why}});
     say(QStringLiteral("I can't reach my brain right now (%1).").arg(why));
     m_errorTimer.start();
@@ -225,6 +247,12 @@ Assistant::Assistant(const Paths &paths, Mode mode, QObject *parent)
     m_summarising = false;
     m_pendingSummary = QJsonArray();
     m_log->record("llm", "summary-failed", {{"reason", why}});
+  });
+  m_commitTimer.setSingleShot(true);
+  connect(&m_commitTimer, &QTimer::timeout, this, [this] {
+    if (voiceOn() && m_tts->incremental())
+      for (const auto &text : m_sentences.deadline())
+        queueStreamedSentence(text);
   });
   m_modeOnceTimer.setSingleShot(true);
   connect(&m_modeOnceTimer, &QTimer::timeout, this, [this] { m_modeOnce.clear(); });
@@ -397,6 +425,24 @@ void Assistant::applySettings(const QString &key) {
     reloadWake();
   if (key.startsWith("stt."))
     m_serverDead = false; // worth another try (also cleared by stt status/doctor)
+  if ((key == "agent.gui.enabled" && !m_settings->flag(key)) ||
+      ((key == "agent.enabled" || key == "agent.input") &&
+       !categories().contains("computer")))
+    if (m_gui)
+      m_gui->cancel();
+  if ((m_speaking || m_synthesizing) &&
+      ((key == "tts.enabled" && !m_settings->flag(key)) ||
+       (key == "tts.muted" && m_settings->flag(key)) || key == "tts.engine" ||
+       key.startsWith("tts.x2."))) {
+    m_tts->stop();
+    m_speech.clear();
+    m_synthesizing = false;
+    m_streamOpen = m_streamSpeaking = false;
+    m_commitTimer.stop();
+    m_sentences.reset();
+    m_speaker->stop();
+    finishSpeaking();
+  }
   m_fish->configure(QUrl(m_settings->string("tts.endpoint")),
                     m_settings->string("tts.referenceId"),
                     m_settings->flag("tts.streaming"),
@@ -409,14 +455,23 @@ void Assistant::applySettings(const QString &key) {
   qwen.streaming = m_settings->flag("tts.streaming");
   qwen.instruct = m_settings->string("tts.qwen.instruct");
   m_qwen->configure(qwen);
-  // Qwen3-TTS is the voice; Fish Speech takes over if it is not answering.
+  X2Tts::Config x2;
+  x2.endpoint = QUrl(m_settings->string("tts.x2.endpoint"));
+  x2.voice = m_settings->string("tts.x2.voice");
+  x2.reuse = m_settings->flag("tts.x2.sessionReuse");
+  m_x2->configure(x2);
   const QString engine = m_settings->string("tts.engine");
   QVector<TextToSpeech *> engines;
-  if (engine == "auto" || engine == "qwen")
+  if (engine == "auto" || engine == "x2streaming")
+    engines << m_x2;
+  if (engine == "qwen")
     engines << m_qwen;
-  if (engine == "auto" || engine == "fish")
+  if (engine == "auto" || engine == "x2streaming" || engine == "fish")
     engines << m_fish;
   m_tts->setEngines(engines);
+  if (!m_testing && !m_oneshot && m_settings->flag("tts.x2.prewarm") &&
+      (engine == "auto" || engine == "x2streaming"))
+    m_x2->prewarm();
   if (key.startsWith("tts."))
     m_voiceBroken = false;
 
@@ -1035,6 +1090,10 @@ void Assistant::onModelReply(const LlmReply &reply) {
     return;
   }
 
+  if (!m_guiWorkflowFailed && !m_turnTainted &&
+      m_settings->flag("agent.gui.workflowMemory") && m_memory->recording())
+    guimemory::workflow(*m_store, m_turnText, m_guiWorkflowApp, m_guiSteps);
+  m_guiSteps = {};
   QString text = reply.content;
   if (m_memoryAnswer) text = semantic::checkedAnswer(text, m_turnEvidence, m_settings->flag("developer.debug"));
   if (text.isEmpty())
@@ -1209,9 +1268,12 @@ void Assistant::answer(bool yes) {
 
 void Assistant::stop() {
   ++m_turn;
+  if (m_voiceBench)
+    m_voiceBench->cancel();
   m_streamOpen = false;
   m_streamSpeaking = false;
   m_sentences.reset();
+  m_commitTimer.stop();
   m_streamText.clear();
   m_llm->cancel();
   if (m_gui) m_gui->cancel();
@@ -1316,7 +1378,7 @@ void Assistant::say(const QString &text, bool speak) {
     settle();
     return;
   }
-  m_speech = splitSentences(text);
+  m_speech = m_tts->incremental() ? QStringList{text} : splitSentences(text);
   // Her own voice must not wake her. Without echo cancellation the only
   // safe thing is not to listen for the wake phrase while she talks.
   if (m_wake && !m_settings->flag("wake.bargeIn"))
@@ -1645,8 +1707,12 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     if ((*voices)[0] < 0 || (*voices)[1] < 0)
       return;
     const QString engine = m_settings->string("tts.engine");
-    const bool qwenOk = (engine == "auto" || engine == "qwen") && (*voices)[0] == 1;
-    const bool fishOk = (engine == "auto" || engine == "fish") && (*voices)[1] == 1;
+    const bool qwenOk =
+        (engine == "auto" || engine == "x2streaming" || engine == "qwen") &&
+        (*voices)[0] == 1;
+    const bool fishOk =
+        (engine == "auto" || engine == "x2streaming" || engine == "fish") &&
+        (*voices)[1] == 1;
     if (qwenOk || fishOk)
       m_voiceBroken = false;
     else
@@ -1655,18 +1721,32 @@ void Assistant::diagnose(std::function<void(QString)> done) {
   const QString engine = m_settings->string("tts.engine");
   QUrl qwenModels = withApiPath(QUrl(m_settings->string("tts.qwen.endpoint")),
                                   QStringLiteral("/v1/models"));
-  probe(qwenModels, [this, add, finish, voices, voiceKnown, engine](bool up, QString error) {
-    (*voices)[0] = up ? 1 : 0;
-    add(QStringLiteral("Qwen3-TTS"), up,
-        up ? m_settings->string("tts.qwen.endpoint")
-           : QStringLiteral("%1 (%2)%3")
-                 .arg(m_settings->string("tts.qwen.endpoint"), error,
-                      engine == "fish" ? QString()
-                                       : QStringLiteral(" -- start an OpenAI-compatible Qwen3-TTS server; see docs/voice-pipeline.md")),
-        true);
-    voiceKnown();
-    finish();
-  }, true);
+  const bool x2 = engine == "auto" || engine == "x2streaming";
+  if (x2)
+    qwenModels = X2Tts::healthUrl(QUrl(m_settings->string("tts.x2.endpoint")));
+  probe(
+      qwenModels,
+      [this, add, finish, voices, voiceKnown, engine, x2](bool up,
+                                                          QString error) {
+        (*voices)[0] = up ? 1 : 0;
+        add(x2 ? QStringLiteral("X2Streaming-TTS")
+               : QStringLiteral("Qwen3-TTS (legacy)"),
+            up,
+            up ? m_settings->string(x2 ? "tts.x2.endpoint"
+                                       : "tts.qwen.endpoint")
+               : QStringLiteral("%1 (%2)%3")
+                     .arg(m_settings->string(x2 ? "tts.x2.endpoint"
+                                                : "tts.qwen.endpoint"),
+                          error,
+                          engine == "fish"
+                              ? QString()
+                              : QStringLiteral(" -- see docs/tts-streaming.md "
+                                               "for the local voice service")),
+            true);
+        voiceKnown();
+        finish();
+      },
+      true);
   QUrl health = withApiPath(QUrl(m_settings->string("tts.endpoint")),
                             QStringLiteral("/v1/health"));
   probe(health, [this, add, finish, voices, voiceKnown](bool up, QString error) {

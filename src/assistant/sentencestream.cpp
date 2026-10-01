@@ -93,7 +93,19 @@ void SentenceStream::reset() {
   m_first = true;
 }
 
-QStringList SentenceStream::drain(bool final) {
+QStringList SentenceStream::deadline() { return drain(false, true); }
+
+QStringList SentenceStream::drain(bool final, bool expired) {
+  // Remove an entire closed block before looking for boundaries. A newline
+  // inside a fence must never strip its opener and expose the code as speech.
+  static const QRegularExpression closedFence(
+      QStringLiteral("```[\\s\\S]*?```"));
+  m_buffer.replace(closedFence, QStringLiteral(" (code omitted) "));
+  if (final) {
+    const int open = m_buffer.indexOf(QLatin1String("```"));
+    if (open >= 0)
+      m_buffer = m_buffer.left(open) + QStringLiteral(" (code omitted) ");
+  }
   QStringList out;
   QString pending; // short sentences held to be joined with the next
   for (;;) {
@@ -101,14 +113,39 @@ QStringList SentenceStream::drain(bool final) {
     const int fences = m_buffer.count(QLatin1String("```"));
     if (fences % 2 == 1 && !final)
       break;
+    // Hold incomplete inline code and Markdown links too. Sanitizing fragments
+    // separately can otherwise pronounce syntax or a partly generated URL.
+    if (!final && (m_buffer.endsWith('`') || m_buffer.count('`') % 2 ||
+                   m_buffer.count('[') != m_buffer.count(']') ||
+                   (m_buffer.contains("](") &&
+                    m_buffer.count('(') != m_buffer.count(')'))))
+      break;
     int cut = boundary(m_buffer, final);
+    if (cut < 0 && m_options.clauses) {
+      const int want = m_first ? m_options.firstMinChars : m_options.minChars;
+      for (int i = want; i + 1 < m_buffer.size(); ++i) {
+        if ((m_buffer.at(i) == ',' || m_buffer.at(i) == ';' ||
+             m_buffer.at(i) == ':') &&
+            m_buffer.at(i + 1).isSpace()) {
+          cut = i + 1;
+          break;
+        }
+      }
+      if (cut < 0 && expired && m_buffer.size() >= want) {
+        cut = m_buffer.lastIndexOf(
+            ' ', std::min<int>(m_buffer.size() - 1, m_options.maxChars));
+        if (cut < want)
+          cut = -1;
+      }
+    }
     if (cut < 0 && m_buffer.size() > m_options.maxChars) {
       cut = m_buffer.lastIndexOf(',', m_options.maxChars);
       if (cut < m_options.maxChars / 3)
         cut = m_buffer.lastIndexOf(' ', m_options.maxChars);
       if (cut < m_options.maxChars / 3)
-        cut = m_options.maxChars;
-      ++cut;
+        cut = -1; // a long token is held, never split into spoken half words
+      else
+        ++cut;
     }
     if (cut < 0)
       break;

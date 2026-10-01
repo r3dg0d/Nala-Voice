@@ -1671,6 +1671,24 @@ private slots:
   // tts status syncs m_voiceBroken with live probes (same as doctor), so a
   // returning voice server is found without waiting out the cooldown or
   // changing a tts setting.
+  void clearingScreenAlsoClearsGuiProcedures() {
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    for (const auto *source : {"screen", "gui-trajectory", "gui-workflow", "note"}) {
+      MemoryRecord record;
+      record.source = source;
+      record.title = "Synthetic retained data";
+      record.summary = "Owned test fixture";
+      record.started = record.lastSeen = QDateTime::currentDateTime();
+      QVERIFY(assistant.store()->insert(record) > 0);
+    }
+    const auto result = assistant.clearScreenMemory(false);
+    QVERIFY(result.contains("3"));
+    QCOMPARE(assistant.store()->countSource("screen"), 0);
+    QCOMPARE(assistant.store()->countSource("gui-trajectory"), 0);
+    QCOMPARE(assistant.store()->countSource("gui-workflow"), 0);
+    QCOMPARE(assistant.store()->countSource("note"), 1);
+  }
   void ttsStatusRecoversStickyWhenServerResponds() {
     TinyHttp http;
     QTemporaryDir dir;
@@ -1678,6 +1696,9 @@ private slots:
     assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
     assistant.settings()->set("tts.engine", "auto");
     assistant.settings()->set("tts.qwen.endpoint", http.url().toString());
+    auto x2Url = http.url();
+    x2Url.setScheme("ws");
+    assistant.settings()->set("tts.x2.endpoint", x2Url.toString());
     assistant.settings()->set("tts.endpoint", http.url().toString());
     assistant.markVoiceBrokenForTest();
     QVERIFY(assistant.voiceBrokenForTest());
@@ -1697,6 +1718,7 @@ private slots:
     assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
     assistant.settings()->set("tts.engine", "auto");
     assistant.settings()->set("tts.qwen.endpoint", "http://127.0.0.1:1");
+    assistant.settings()->set("tts.x2.endpoint", "ws://127.0.0.1:1/v1/ws");
     assistant.settings()->set("tts.endpoint", "http://127.0.0.1:1");
     assistant.markVoiceBrokenForTest();
     QVERIFY(assistant.voiceBrokenForTest());
@@ -1716,6 +1738,7 @@ private slots:
     assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
     assistant.settings()->set("tts.engine", "auto");
     assistant.settings()->set("tts.qwen.endpoint", "http://127.0.0.1:1");
+    assistant.settings()->set("tts.x2.endpoint", "ws://127.0.0.1:1/v1/ws");
     assistant.settings()->set("tts.endpoint", "http://127.0.0.1:1");
     QVERIFY(!assistant.voiceBrokenForTest());
 

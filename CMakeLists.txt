@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Nala VERSION 1.4.2 LANGUAGES CXX)
+project(Nala VERSION 1.5.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 
 find_package(Qt6 6.10 REQUIRED COMPONENTS Core DBus Gui Widgets Quick Qml ShaderTools Test
-  Network Multimedia Sql Concurrent)
+  Network WebSockets Multimedia Sql Concurrent)
 # Wayland overlay placement on Hyprland. Optional so the app still builds and
 # runs (as a plain floating window) on compositors without layer-shell.
 find_package(LayerShellQt 6.7 QUIET CONFIG)
@@ -26,6 +26,8 @@ endif()
 # tests link exactly the code the app runs.
 qt_add_library(nala_assistant STATIC
   src/assistant/assistant.cpp src/assistant/assistant.h
+  src/assistant/accessibility.cpp src/assistant/accessibility.h
+  src/assistant/visualdiff.cpp src/assistant/visualdiff.h
   src/assistant/guigrounder.cpp src/assistant/guigrounder.h
   src/assistant/assistant_gui.cpp
   src/assistant/assistant_web.cpp
@@ -56,12 +58,15 @@ qt_add_library(nala_assistant STATIC
   src/assistant/settings.cpp src/assistant/settings.h
   src/assistant/speech.cpp src/assistant/speech.h
   src/assistant/tools.cpp src/assistant/tools.h
+  src/assistant/x2tts.cpp src/assistant/x2tts.h
+  src/assistant/ttsbenchmark.cpp src/assistant/ttsbenchmark.h
+  src/assistant/guimemory.cpp src/assistant/guimemory.h
   src/assistant/tts.cpp src/assistant/tts.h
   src/assistant/wakecli.cpp src/assistant/wakecli.h
   src/assistant/wakeword.cpp src/assistant/wakeword.h)
 target_include_directories(nala_assistant PUBLIC src/assistant)
 target_link_libraries(nala_assistant PUBLIC
-  Qt6::Core Qt6::Gui Qt6::Network Qt6::Multimedia Qt6::Sql Qt6::Concurrent)
+  Qt6::Core Qt6::Gui Qt6::Network Qt6::WebSockets Qt6::DBus Qt6::Multimedia Qt6::Sql Qt6::Concurrent)
 target_compile_options(nala_assistant PRIVATE -Wall -Wextra -Wpedantic)
 # project(VERSION) above is the one place the version is written down.
 target_compile_definitions(nala_assistant PUBLIC NALA_VERSION="${PROJECT_VERSION}")
@@ -166,3 +171,11 @@ set_tests_properties(nala-agent-tests PROPERTIES ENVIRONMENT
 
 qt_add_executable(nala-agent-bench benchmarks/agent_bench.cpp)
 target_link_libraries(nala-agent-bench PRIVATE nala_assistant)
+qt_add_executable(nala-tts-bench benchmarks/tts_bench.cpp)
+target_link_libraries(nala-tts-bench PRIVATE nala_assistant)
+
+qt_add_executable(nala-stream-tests tests/stream_tests.cpp)
+target_link_libraries(nala-stream-tests PRIVATE nala_assistant Qt6::Test)
+add_test(NAME nala-stream-tests COMMAND nala-stream-tests)
+set_tests_properties(nala-stream-tests PROPERTIES ENVIRONMENT
+  "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORMTHEME=;HYPRLAND_INSTANCE_SIGNATURE=")

@@ -380,13 +380,20 @@ bool Speaker::begin(int sampleRate, int channels, int bitsPerSample,
   m_pending.clear();
   m_inputDone = false;
   m_announced = false;
+  m_starved = false;
+  m_underruns = 0;
   m_pump.start();
   return true;
 }
 
 void Speaker::append(const QByteArray &pcm) {
-  if (m_sink)
+  if (m_sink) {
+    if (m_pending.size() + pcm.size() > m_format.bytesForDuration(60000000)) {
+      sinkFailed(QStringLiteral("Speech output buffer exceeded 60 seconds."));
+      return;
+    }
     m_pending.append(pcm);
+  }
 }
 
 void Speaker::finish() { m_inputDone = true; }
@@ -413,12 +420,18 @@ void Speaker::pump() {
   qsizetype room = m_sink->bytesFree();
   room -= room % frameBytes;
   if (room > 0 && !m_pending.isEmpty()) {
-    const qsizetype take = std::min(room, m_pending.size() -
-                                              m_pending.size() % frameBytes);
+    const qsizetype take = std::min(room, m_pending.size());
     if (take > 0) {
       const QByteArray chunk = m_pending.left(take);
-      m_io->write(chunk);
-      m_pending.remove(0, take);
+      const qint64 written = m_io->write(chunk);
+      if (written < 0) {
+        sinkFailed(QStringLiteral("Could not write speech audio."));
+        return;
+      }
+      if (!written)
+        return;
+      m_pending.remove(0, written);
+      m_starved = false;
       if (!m_announced) {
         m_announced = true;
         emit started();
@@ -436,7 +449,12 @@ void Speaker::pump() {
   // Done once everything has been handed over and the device has drained.
   const bool drained = m_sink->bytesFree() >= m_sink->bufferSize() ||
                        m_sink->state() == QAudio::IdleState;
-  if (m_inputDone && m_pending.size() < frameBytes && drained)
+  if (m_announced && !m_inputDone && m_pending.isEmpty() && drained &&
+      !m_starved) {
+    m_starved = true;
+    ++m_underruns;
+  }
+  if (m_inputDone && m_pending.isEmpty() && drained)
     end(true);
 }
 

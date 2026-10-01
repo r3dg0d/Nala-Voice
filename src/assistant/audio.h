@@ -122,6 +122,7 @@ public:
   bool playing() const { return m_sink != nullptr; }
   double level() const { return m_level; }
   // Behave as if the output device errored mid-stream. For tests.
+  int underruns() const { return m_underruns; }
   void simulateSinkErrorForTest(const QString &reason) { sinkFailed(reason); }
 
 signals:
@@ -141,6 +142,8 @@ private:
   QByteArray m_pending;
   bool m_inputDone = false;
   bool m_announced = false;
+  bool m_starved = false;
+  int m_underruns = 0;
   double m_level = 0.0;
   QTimer m_pump;
 };

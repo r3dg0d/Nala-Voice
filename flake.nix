@@ -15,6 +15,7 @@
         qt6.qtshadertools
         qt6.qtsvg
         qt6.qtwayland
+        qt6.qtwebsockets
         qt6.qtmultimedia
         kdePackages.layer-shell-qt
         onnxruntime   # the wake-word detector
@@ -33,7 +34,7 @@
       packages = forAll (pkgs: {
         default = pkgs.stdenv.mkDerivation {
           pname = "nala";
-          version = "1.4.2";
+          version = "1.5.0";
           src = self;
           nativeBuildInputs = with pkgs; [ cmake ninja qt6.wrapQtAppsHook ];
           buildInputs = qtDeps pkgs;
@@ -51,6 +52,9 @@
               QT_PLUGIN_PATH=${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix} \
               QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix} \
               HYPRLAND_INSTANCE_SIGNATURE= ./nala-agent-tests
+            QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
+              QT_PLUGIN_PATH=${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix} \
+              HYPRLAND_INSTANCE_SIGNATURE= ./nala-stream-tests
             QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= \
               QT_PLUGIN_PATH=${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix} \
               QML_IMPORT_PATH=${pkgs.qt6.qtdeclarative}/${pkgs.qt6.qtbase.qtQmlPrefix} \

@@ -145,7 +145,7 @@ Window {
             Step {
                 title: "Choose her voice"
                 Body {
-                    text: "Nala speaks through Fish Speech running on this computer. Without it she answers in a speech bubble."
+                    text: "Nala uses a local streaming voice, with Fish Speech as a fallback. If neither service is available she answers in a speech bubble."
                 }
                 Field {
                     text: root.v("tts.referenceId")

@@ -143,6 +143,7 @@ void QwenTts::check(std::function<void(QString)> done) {
 void TtsChain::setEngines(const QVector<TextToSpeech *> &engines) {
   if (engines == m_engines)
     return; // unchanged: keep the connections and the failure memory
+  stop();
   for (TextToSpeech *old : m_engines)
     old->disconnect(this);
   m_engines = engines;
@@ -152,13 +153,15 @@ void TtsChain::setEngines(const QVector<TextToSpeech *> &engines) {
     connect(engine, &TextToSpeech::format, this, [this, i](int r, int c, int b) {
       if (i != m_current || m_stopped)
         return;
-      m_audioStarted = true;
       emit format(r, c, b);
     });
-    connect(engine, &TextToSpeech::audio, this, [this, i](const QByteArray &pcm) {
-      if (i == m_current && !m_stopped)
-        emit audio(pcm);
-    });
+    connect(engine, &TextToSpeech::audio, this,
+            [this, i](const QByteArray &pcm) {
+              if (i == m_current && !m_stopped && !pcm.isEmpty()) {
+                m_audioStarted = true;
+                emit audio(pcm);
+              }
+            });
     connect(engine, &TextToSpeech::done, this, [this, i] {
       if (i != m_current || m_stopped)
         return;
@@ -201,6 +204,7 @@ QStringList TtsChain::downEngines() const {
 
 void TtsChain::synthesize(const QString &text) {
   stop();
+  m_streaming = false;
   m_text = text;
   m_errors.clear();
   m_stopped = false;
@@ -222,7 +226,18 @@ void TtsChain::tryFrom(int index) {
     if (m_downUntil.value(i) > now)
       continue;
     m_current = i;
-    m_engines.at(i)->synthesize(m_text);
+    auto *engine = m_engines.at(i);
+    if (m_streaming && engine->incremental()) {
+      engine->beginStream();
+      if (m_stopped || m_current != i)
+        return; // synchronous failure may select fallback
+      if (!m_text.isEmpty())
+        engine->pushText(m_text);
+      if (m_inputDone)
+        engine->finishStream();
+    } else if (!m_streaming || m_inputDone) {
+      engine->synthesize(m_text);
+    }
     return;
   }
   m_stopped = true;
@@ -234,4 +249,48 @@ void TtsChain::stop() {
   m_stopped = true;
   for (TextToSpeech *engine : m_engines)
     engine->stop();
+}
+
+bool TtsChain::incremental() const {
+  return !m_engines.isEmpty() && m_engines.first()->incremental();
+}
+
+void TtsChain::beginStream() {
+  stop();
+  m_text.clear();
+  m_errors.clear();
+  m_streaming = true;
+  m_inputDone = m_audioStarted = false;
+  m_stopped = false;
+  tryFrom(0);
+}
+
+void TtsChain::pushText(const QString &text) {
+  if (m_stopped || m_inputDone || text.isEmpty())
+    return;
+  m_text += text;
+  if (m_text.size() > 64000) {
+    stop();
+    emit failed("Speech text exceeded the session limit.");
+    return;
+  }
+  if (m_current >= 0 && m_engines.at(m_current)->incremental())
+    m_engines.at(m_current)->pushText(text);
+}
+
+void TtsChain::finishStream() {
+  if (m_stopped || m_inputDone)
+    return;
+  m_inputDone = true;
+  if (m_current >= 0) {
+    auto *engine = m_engines.at(m_current);
+    if (engine->incremental())
+      engine->finishStream();
+    else if (!m_text.isEmpty())
+      engine->synthesize(m_text);
+    else {
+      m_stopped = true;
+      emit done();
+    }
+  }
 }

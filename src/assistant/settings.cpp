@@ -50,20 +50,44 @@ const QVector<Spec> &specs() {
       {"llm.fastModel", Kind::String, QStringLiteral("gpt-oss:20b")},
       {"llm.speedModel", Kind::String, QStringLiteral("qwen3:30b-a3b")},
       // auto: route each request; main / fast / speed: always that role.
-      {"llm.mode", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.mode",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "main", "fast", "speed"}},
       {"llm.autoRouting", Kind::Bool, true},
       // Role per kind of request while routing automatically. "auto" leaves
       // it to the classifier.
-      {"llm.route.conversation", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.route.conversation",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "main", "fast", "speed"}},
-      {"llm.route.tools", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.route.tools",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "main", "fast", "speed"}},
-      {"llm.route.coding", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.route.coding",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "main", "fast", "speed"}},
-      {"llm.route.summary", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.route.summary",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "main", "fast", "speed"}},
-      {"llm.route.classify", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.route.classify",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "main", "fast", "speed"}},
       // Fallback order per role, e.g. ["fast", "speed", "main"]. Empty uses
       // the built-in order. Never falls back to a cloud model.
@@ -74,7 +98,11 @@ const QVector<Spec> &specs() {
       // seconds. Off by default.
       // auto: on for the main model on requests that need reasoning, off
       // otherwise (a spoken reply should not wait on hidden thinking).
-      {"llm.thinking", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.thinking",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"off", "on", "auto", "server"}},
       // Talk to Ollama through its native chat API, which can set the context
       // window (llm.contextTokens), keep_alive and thinking exactly. Off uses
@@ -84,7 +112,11 @@ const QVector<Spec> &specs() {
       // next one does not wait for a reload ("30m", "-1" for forever).
       {"llm.keepAlive", Kind::String, QStringLiteral("30m")},
       // ollama / llamacpp skip the server probe; auto asks it who it is.
-      {"llm.provider", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.provider",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "ollama", "llamacpp"}},
       // Stream the answer and start speaking at the first full sentence.
       {"llm.streaming", Kind::Bool, true},
@@ -110,14 +142,22 @@ const QVector<Spec> &specs() {
       {"llm.maxToolOutputChars", Kind::Int, 12000, 500, 200000},
       {"llm.timeoutSec", Kind::Int, 90, 5, 600},
       // "auto" asks the server what the model can do, where it can say.
-      {"llm.vision", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"llm.vision",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "on", "off"}},
       {"llm.toolCalling", Kind::Bool, true},
       {"llm.systemPrompt", Kind::String, QString()},
 
       // Speech recognition: whisper.cpp, as a server or a one-shot binary.
       {"stt.enabled", Kind::Bool, true},
-      {"stt.mode", Kind::Choice, QStringLiteral("auto"), 0, 0,
+      {"stt.mode",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
        {"auto", "server", "cli"}},
       // Not whisper-server's own default of 8080: that is Fish Speech's.
       {"stt.serverUrl", Kind::Url, QStringLiteral("http://127.0.0.1:8178")},
@@ -125,7 +165,11 @@ const QVector<Spec> &specs() {
       {"stt.model", Kind::String, QString()},
       {"stt.language", Kind::String, QStringLiteral("en")},
       {"stt.device", Kind::String, QString()},
-      {"stt.activation", Kind::Choice, QStringLiteral("push"), 0, 0,
+      {"stt.activation",
+       Kind::Choice,
+       QStringLiteral("push"),
+       0,
+       0,
        {"push", "wake", "always"}},
       // Primes the recogniser. Empty: her name, her wake phrases and the
       // commands that matter, from her identity.
@@ -138,10 +182,30 @@ const QVector<Spec> &specs() {
       // Voice: Fish Speech's local API server.
       {"tts.enabled", Kind::Bool, true},
       // auto: Qwen3-TTS, and Fish Speech if it is not answering.
-      {"tts.engine", Kind::Choice, QStringLiteral("auto"), 0, 0,
-       {"auto", "qwen", "fish", "none"}},
+      {"tts.engine",
+       Kind::Choice,
+       QStringLiteral("auto"),
+       0,
+       0,
+       {"auto", "x2streaming", "qwen", "fish", "none"}},
+      {"tts.x2.endpoint", Kind::String,
+       QStringLiteral("ws://127.0.0.1:50052/v1/ws")},
+      {"tts.x2.voice", Kind::String, QStringLiteral("robot_service_v1")},
+      {"tts.x2.sessionReuse", Kind::Bool, true},
+      {"tts.x2.prewarm", Kind::Bool, true},
+      {"tts.x2.commit.minChars", Kind::Int, 24, 8, 120},
+      {"tts.x2.commit.maxChars", Kind::Int, 220, 120, 1000},
+      {"tts.x2.commit.maxDelayMs", Kind::Int, 350, 80, 2000},
+      {"tts.x2.commit.mode",
+       Kind::Choice,
+       QStringLiteral("clauses"),
+       0,
+       0,
+       {"clauses", "sentences"}},
+      // Deprecated explicit qwen compatibility mode. Auto uses X2, then Fish.
       // Qwen3-TTS, through any OpenAI-compatible speech server (POST
-      // /v1/audio/speech). Raw PCM has no rate in the stream, so it is set here.
+      // /v1/audio/speech). Raw PCM has no rate in the stream, so it is set
+      // here.
       {"tts.qwen.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:8880")},
       {"tts.qwen.model", Kind::String, QStringLiteral("tts-1")},
       {"tts.qwen.voice", Kind::String, QStringLiteral("alloy")},
@@ -159,7 +223,11 @@ const QVector<Spec> &specs() {
 
       // Computer use.
       {"agent.enabled", Kind::Bool, true},
-      {"agent.confirm", Kind::Choice, QStringLiteral("risky"), 0, 0,
+      {"agent.confirm",
+       Kind::Choice,
+       QStringLiteral("risky"),
+       0,
+       0,
        {"everything", "risky", "high"}},
       {"agent.input", Kind::Bool, true},
       {"agent.files", Kind::Bool, true},
@@ -167,29 +235,56 @@ const QVector<Spec> &specs() {
       {"agent.browser", Kind::Bool, true},
       {"agent.web", Kind::Bool, false},
       {"web.autoSearch", Kind::Bool, true},
-      {"web.provider", Kind::Choice, QStringLiteral("duckduckgo"), 0, 0, {"duckduckgo", "searxng"}},
-      {"web.duckduckgo.endpoint", Kind::Url, QStringLiteral("https://lite.duckduckgo.com/lite/")},
-      {"web.searxng.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:8080/search")},
+      {"web.provider",
+       Kind::Choice,
+       QStringLiteral("duckduckgo"),
+       0,
+       0,
+       {"duckduckgo", "searxng"}},
+      {"web.duckduckgo.endpoint", Kind::Url,
+       QStringLiteral("https://lite.duckduckgo.com/lite/")},
+      {"web.searxng.endpoint", Kind::Url,
+       QStringLiteral("http://127.0.0.1:8080/search")},
       {"web.maxResults", Kind::Int, 5, 1, 8},
       {"web.timeoutMs", Kind::Int, 10000, 1000, 30000},
       {"agent.shell", Kind::Bool, false},
       {"agent.maxSteps", Kind::Int, 10, 1, 30},
 
+      {"agent.gui.enabled", Kind::Bool, true},
+      {"agent.gui.accessibility", Kind::Bool, true},
+      {"agent.gui.waitForStable", Kind::Bool, true},
+      {"agent.gui.visualDiff", Kind::Bool, true},
+      {"agent.gui.stableIntervalMs", Kind::Int, 80, 30, 250},
+      {"agent.gui.stableSamples", Kind::Int, 3, 2, 6},
+      {"agent.gui.stableTimeoutMs", Kind::Int, 1600, 1500, 5000},
+      {"agent.gui.workflowMemory", Kind::Bool, false},
       {"agent.gui.maxRefinements", Kind::Int, 4, 1, 8},
       {"agent.gui.maxRetries", Kind::Int, 2, 0, 2},
       {"agent.gui.tolerancePixels", Kind::Int, 4, 1, 16},
       {"agent.gui.verifyActions", Kind::Bool, true},
       {"agent.gui.cropZoom", Kind::Bool, true},
-      {"agent.gui.coordinateSpace", Kind::Choice, QStringLiteral("normalized_1000"), 0, 0, {"normalized_1000", "pixels"}},
+      {"agent.gui.coordinateSpace",
+       Kind::Choice,
+       QStringLiteral("normalized_1000"),
+       0,
+       0,
+       {"normalized_1000", "pixels"}},
       {"memory.durable.enabled", Kind::Bool, true},
       {"memory.durable.autoExtract", Kind::Bool, false},
       {"memory.entities.enabled", Kind::Bool, true},
       {"memory.semanticSearch", Kind::Bool, true},
       {"memory.queryRewrite", Kind::Bool, true},
       {"memory.embedding.enabled", Kind::Bool, false},
-      {"memory.embedding.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:11434")},
-      {"memory.embedding.provider", Kind::Choice, QStringLiteral("ollama"), 0, 0, {"ollama", "openai"}},
-      {"memory.embedding.model", Kind::String, QStringLiteral("qwen3-embedding:0.6b")},
+      {"memory.embedding.endpoint", Kind::Url,
+       QStringLiteral("http://127.0.0.1:11434")},
+      {"memory.embedding.provider",
+       Kind::Choice,
+       QStringLiteral("ollama"),
+       0,
+       0,
+       {"ollama", "openai"}},
+      {"memory.embedding.model", Kind::String,
+       QStringLiteral("qwen3-embedding:0.6b")},
       {"memory.embedding.dimensions", Kind::Int, 0, 0, 65536},
       {"memory.backendTimeoutMs", Kind::Int, 3000, 100, 30000},
       {"memory.hybrid.lexicalK", Kind::Int, 30, 1, 200},
@@ -197,15 +292,21 @@ const QVector<Spec> &specs() {
       {"memory.hybrid.rrfK", Kind::Int, 60, 1, 1000},
       {"memory.hybrid.finalK", Kind::Int, 10, 1, 50},
       {"memory.rerank.enabled", Kind::Bool, false},
-      {"memory.rerank.endpoint", Kind::Url, QStringLiteral("http://127.0.0.1:8081/v1")},
-      {"memory.rerank.model", Kind::String, QStringLiteral("bge-reranker-v2-m3")},
+      {"memory.rerank.endpoint", Kind::Url,
+       QStringLiteral("http://127.0.0.1:8081/v1")},
+      {"memory.rerank.model", Kind::String,
+       QStringLiteral("bge-reranker-v2-m3")},
       {"memory.rerank.topK", Kind::Int, 30, 1, 100},
       // Screen memory. Off until asked for.
       {"memory.enabled", Kind::Bool, false},
       {"memory.paused", Kind::Bool, false},
       {"memory.pausedUntil", Kind::Real, 0.0, 0.0, 1e15},
       {"memory.intervalSec", Kind::Int, 30, 5, 3600},
-      {"memory.scope", Kind::Choice, QStringLiteral("window"), 0, 0,
+      {"memory.scope",
+       Kind::Choice,
+       QStringLiteral("window"),
+       0,
+       0,
        {"window", "monitor"}},
       {"memory.dedupe", Kind::Bool, true},
       {"memory.dedupeDistance", Kind::Int, 6, 0, 32},
@@ -213,7 +314,11 @@ const QVector<Spec> &specs() {
       // How long pictures are kept: off (only long enough to be described),
       // 1h, 1d, 7d, 30d, manual (until you clear them; the storage cap still
       // applies) or custom (memory.screenshotDays).
-      {"memory.screenshotRetention", Kind::Choice, QStringLiteral("custom"), 0, 0,
+      {"memory.screenshotRetention",
+       Kind::Choice,
+       QStringLiteral("custom"),
+       0,
+       0,
        {"custom", "off", "1h", "1d", "7d", "30d", "manual"}},
       {"memory.semanticDays", Kind::Int, 0, 0, 3650},
       {"memory.maxStorageMB", Kind::Int, 5120, 50, 1000000},
@@ -230,12 +335,24 @@ const QVector<Spec> &specs() {
 
       // Who she is.
       {"identity.name", Kind::String, QStringLiteral("Nala")},
-      {"identity.personality", Kind::Choice, QStringLiteral("friendly"), 0, 0,
+      {"identity.personality",
+       Kind::Choice,
+       QStringLiteral("friendly"),
+       0,
+       0,
        {"friendly", "playful", "professional", "minimal", "custom"}},
       {"identity.customPersonality", Kind::String, QString()},
-      {"identity.responseLength", Kind::Choice, QStringLiteral("normal"), 0, 0,
+      {"identity.responseLength",
+       Kind::Choice,
+       QStringLiteral("normal"),
+       0,
+       0,
        {"short", "normal", "detailed"}},
-      {"identity.expressiveness", Kind::Choice, QStringLiteral("normal"), 0, 0,
+      {"identity.expressiveness",
+       Kind::Choice,
+       QStringLiteral("normal"),
+       0,
+       0,
        {"low", "normal", "high"}},
       {"identity.setupDone", Kind::Bool, false},
 
@@ -274,6 +391,13 @@ QVariant accept(const Spec &spec, const QVariant &value) {
       return value;
     return {};
   case Kind::String:
+    if (QString::fromLatin1(spec.key) == "tts.x2.endpoint") {
+      const QUrl url(value.toString(), QUrl::StrictMode);
+      if (!url.isValid() || (url.scheme() != "ws" && url.scheme() != "wss") ||
+          url.host().isEmpty() || !url.userInfo().isEmpty() ||
+          url.hasFragment())
+        return {};
+    }
     if (value.canConvert<QString>() && value.typeId() != QMetaType::Bool)
       return value.toString().left(8000);
     return {};
@@ -367,6 +491,9 @@ void AssistantSettings::load() {
   if (!file.open(QIODevice::ReadOnly))
     return;
   const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+  // Preserve legacy HTTP endpoints, model IDs and voice names in their own
+  // namespace. X2's streaming-trained checkpoint has a different speaker table;
+  // absent new settings use its supported default, not an invalid copied voice.
   // One bad entry costs that entry, not the file.
   for (auto it = json.begin(); it != json.end(); ++it)
     if (const Spec *spec = find(it.key())) {

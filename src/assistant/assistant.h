@@ -4,12 +4,14 @@
 #include "identity.h"
 #include "latency.h"
 #include "llm.h"
+#include "memory.h"
 #include "modelcatalog.h"
 #include "modelrouter.h"
 #include "sentencestream.h"
-#include "wakeword.h"
-#include "memory.h"
 #include "tools.h"
+#include "ttsbenchmark.h"
+#include "wakeword.h"
+#include "x2tts.h"
 
 #include <QElapsedTimer>
 #include <QJsonArray>
@@ -412,6 +414,7 @@ private:
   SpeechToText *m_sttCliOverride = nullptr;    // tests: cli / auto fallback
   bool m_triedServer = false;
   FishSpeech *m_fish = nullptr;
+  X2Tts *m_x2 = nullptr;
   QwenTts *m_qwen = nullptr;
   TtsChain *m_tts = nullptr; // the voice: Qwen3-TTS, then Fish Speech
   CommandRouter m_router;
@@ -488,6 +491,11 @@ private:
 
   // Streaming the answer into the voice.
   SentenceStream m_sentences;
+  QTimer m_commitTimer;
+  QPointer<TtsBenchmark> m_voiceBench;
+  QJsonArray m_guiSteps;
+  QString m_guiWorkflowApp;
+  bool m_guiWorkflowFailed = false;
   QString m_streamText;
   bool m_streamSpeaking = false; // sentences of this turn have been queued
   bool m_streamOpen = false;     // more may come; do not finish speaking yet

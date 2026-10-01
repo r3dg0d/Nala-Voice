@@ -492,7 +492,7 @@ Window {
                 }
 
                 Heading {
-                    text: "Voice (Fish Speech)"
+                    text: "Voice"
                 }
                 SettingSwitch {
                     key: "tts.enabled"
@@ -502,9 +502,21 @@ Window {
                     key: "tts.muted"
                     text: "Muted for now (bubbles only)"
                 }
+                SettingChoice {
+                    key: "tts.engine"
+                    label: "Speech engine"
+                    options: [{ label: "Automatic with fallback", value: "auto" },
+                              { label: "X2 streaming with Fish fallback", value: "x2streaming" },
+                              { label: "Fish Speech", value: "fish" },
+                              { label: "Legacy Qwen speech server", value: "qwen" },
+                              { label: "Text only", value: "none" }]
+                }
+                SettingField { key: "tts.x2.endpoint"; label: "Streaming speech server" }
+                SettingField { key: "tts.x2.voice"; label: "Streaming voice"; placeholder: "robot_service_v1" }
+                SettingSwitch { key: "tts.x2.prewarm"; text: "Keep the streaming connection ready" }
                 SettingField {
                     key: "tts.endpoint"
-                    label: "Fish Speech server"
+                    label: "Fallback speech server (Fish Speech)"
                 }
                 SettingField {
                     key: "tts.referenceId"

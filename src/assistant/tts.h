@@ -65,6 +65,10 @@ public:
   void synthesize(const QString &text) override;
   void stop() override;
   // Milliseconds an engine that failed is skipped for.
+  bool incremental() const override;
+  void beginStream() override;
+  void pushText(const QString &text) override;
+  void finishStream() override;
   void setCooldownMs(int ms) { m_cooldownMs = ms < 0 ? 0 : ms; }
   int cooldownMs() const { return m_cooldownMs; }
   // The engine that spoke the last sentence, for `nala tts status`.
@@ -81,6 +85,7 @@ private:
   int m_current = -1;
   bool m_audioStarted = false;
   bool m_stopped = true;
+  bool m_streaming = false, m_inputDone = false;
   QString m_lastEngine;
   QStringList m_errors;
   int m_cooldownMs = 30000;

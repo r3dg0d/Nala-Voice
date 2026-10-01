@@ -5,16 +5,17 @@
 // Everything that decides is in modelrouter/contextbudget/modelcatalog, where
 // it is tested without a server; this file connects it to the running assistant.
 #include "assistant.h"
-#include "websearch.h"
 #include "audio.h"
 #include "contextbudget.h"
 #include "eventlog.h"
+#include "guimemory.h"
 #include "memory.h"
 #include "retrieval.h"
 #include "screenmemory.h"
 #include "settings.h"
 #include "speech.h"
 #include "tts.h"
+#include "websearch.h"
 
 #include <QJsonDocument>
 #include <QNetworkReply>
@@ -331,11 +332,23 @@ void Assistant::think(const QString &text) {
   m_memoryAnswer = false;
   m_autoWebResult = false;
   m_turnTainted = false;
+  m_guiSteps = {};
+  m_guiWorkflowApp.clear();
+  m_guiWorkflowFailed = false;
   m_triedModels.clear();
   m_streamSpeaking = false;
   m_streamOpen = false;
   m_streamText.clear();
-  m_sentences.reset();
+  SentenceStream::Options commitment;
+  commitment.firstMinChars = commitment.minChars =
+      m_settings->integer("tts.x2.commit.minChars");
+  commitment.maxChars = m_settings->integer("tts.x2.commit.maxChars");
+  commitment.clauses = m_tts->incremental() &&
+                       m_settings->string("tts.x2.commit.mode") == "clauses";
+  if (!m_tts->incremental())
+    commitment = SentenceStream::Options{};
+  m_sentences.configure(commitment);
+  m_commitTimer.stop();
   m_ttsFirstPending = false;
 
   // The prompt: system, a short summary of older turns, the recent turns that
@@ -480,6 +493,8 @@ void Assistant::onModelDelta(const QString &text) {
   maybeRecoverVoice();
   if (!voiceOn())
     return;
+  if (m_tts->incremental() && !m_commitTimer.isActive())
+    m_commitTimer.start(m_settings->integer("tts.x2.commit.maxDelayMs"));
   for (const QString &sentence : m_sentences.feed(text))
     queueStreamedSentence(sentence);
 }
@@ -487,6 +502,8 @@ void Assistant::onModelDelta(const QString &text) {
 void Assistant::queueStreamedSentence(const QString &sentence) {
   if (sentence.isEmpty())
     return;
+  if (!m_latency.has(LatencyTrace::FirstCommit) && m_turnClock.isValid())
+    m_latency.set(LatencyTrace::FirstCommit, m_turnClock.elapsed());
   if (!m_streamSpeaking) {
     // The first sentence of this turn: what she was saying before is over.
     m_tts->stop();
@@ -502,16 +519,30 @@ void Assistant::queueStreamedSentence(const QString &sentence) {
     settle();
   }
   m_streamOpen = true;
+  if (m_tts->incremental() && !m_voiceForTest) {
+    if (!m_synthesizing) {
+      m_synthesizing = true;
+      m_ttsFirstPending = true;
+      m_ttsClock.start();
+      m_tts->beginStream();
+    }
+    if (m_synthesizing)
+      m_tts->pushText(sentence + ' ');
+    return;
+  }
   m_speech.append(sentence);
   if (!m_synthesizing && !m_speaker->playing())
     speakNext();
 }
 
 void Assistant::finishStreamedSpeech(const QString &fullText) {
+  m_commitTimer.stop();
   const QString rest = m_sentences.flush();
   if (!rest.isEmpty())
     queueStreamedSentence(rest);
   m_streamOpen = false;
+  if (m_tts->incremental() && !m_voiceForTest && m_synthesizing)
+    m_tts->finishStream();
   m_bubble = fullText;
   emit bubbleChanged();
   emit said(fullText);
@@ -657,14 +688,20 @@ void Assistant::sttStatus(std::function<void(QString)> done) {
 
 void Assistant::ttsStatus(std::function<void(QString)> done) {
   const QString engine = m_settings->string("tts.engine");
-  const QUrl qwenBase(m_settings->string("tts.qwen.endpoint"));
+  const bool x2 = engine == "auto" || engine == "x2streaming";
+  const QUrl qwenBase(
+      m_settings->string(x2 ? "tts.x2.endpoint" : "tts.qwen.endpoint"));
   const QUrl fishBase(m_settings->string("tts.endpoint"));
   // Same paths as doctor so status and doctor agree on whether a voice is up.
-  const QUrl qwenProbe = withApiPath(qwenBase, QStringLiteral("/v1/models"));
+  const QUrl qwenProbe =
+      x2 ? X2Tts::healthUrl(qwenBase)
+         : withApiPath(qwenBase, QStringLiteral("/v1/models"));
   const QUrl fishProbe = withApiPath(fishBase, QStringLiteral("/v1/health"));
-  auto lines = std::make_shared<QStringList>(QStringList{QString(), QString()});
+  auto lines = std::make_shared<QStringList>(
+      x2 ? QStringList{QString(), QString(), QString()}
+         : QStringList{QString(), QString()});
   auto ups = std::make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
-  auto pending = std::make_shared<int>(2);
+  auto pending = std::make_shared<int>(x2 ? 3 : 2);
   const auto finish = [this, done, lines, ups, pending, engine] {
     if (--*pending > 0)
       return;
@@ -679,10 +716,10 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
     // none answering marks voice broken. Engine "none" is intentional silence.
     if (engine != QLatin1String("none")) {
       const bool qwenOk =
-          (engine == QLatin1String("auto") || engine == QLatin1String("qwen")) &&
+          (engine == "auto" || engine == "x2streaming" || engine == "qwen") &&
           (*ups)[0] == 1;
       const bool fishOk =
-          (engine == QLatin1String("auto") || engine == QLatin1String("fish")) &&
+          (engine == "auto" || engine == "x2streaming" || engine == "fish") &&
           (*ups)[1] == 1;
       const bool wasBroken = m_voiceBroken;
       if (qwenOk || fishOk) {
@@ -699,22 +736,56 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
     }
     done(text);
   };
-  checkUrl(qwenProbe, [lines, ups, finish, qwenBase, engine](bool up, QString error) {
+  if (x2) {
+    auto diagnostics = X2Tts::healthUrl(qwenBase);
+    diagnostics.setPath("/nala/diagnostics");
+    QNetworkRequest request(diagnostics);
+    request.setTransferTimeout(2500);
+    auto *probe = m_network.get(request);
+    connect(probe, &QNetworkReply::readyRead, this, [probe] {
+      if (probe->bytesAvailable() > 4096)
+        probe->abort();
+    });
+    connect(probe, &QNetworkReply::finished, this, [probe, lines, finish] {
+      const auto json =
+          QJsonDocument::fromJson(probe->readAll().left(4096)).object();
+      const auto state = [&json](const char *key) {
+        const auto value = json.value(key);
+        return !value.isBool()  ? QString("unknown")
+               : value.toBool() ? QString("yes")
+                                : QString("no");
+      };
+      (*lines)[2] =
+          QString("  X2 model loaded: %1; GPU ready: %2; warm: %3")
+              .arg(state("model_loaded"), state("gpu_ready"), state("warm"));
+      probe->deleteLater();
+      finish();
+    });
+  }
+  checkUrl(qwenProbe, [lines, ups, finish, qwenBase, engine,
+                       x2](bool up, QString error) {
     (*ups)[0] = up ? 1 : 0;
-    (*lines)[0] = QStringLiteral("  Qwen3-TTS %1 at %2: %3")
-                  .arg(engine == "fish" ? QStringLiteral("(unused)") : QStringLiteral("(primary)"),
-                       qwenBase.toString(),
-                       up ? QStringLiteral("running") : QStringLiteral("not responding (%1)").arg(error));
+    (*lines)[0] =
+        QStringLiteral("  %1 %2 at %3: %4")
+            .arg(x2 ? "X2Streaming-TTS" : "Qwen3-TTS (legacy)",
+                 engine == "fish" ? QStringLiteral("(unused)")
+                                  : QStringLiteral("(primary)"),
+                 qwenBase.toString(),
+                 up ? QStringLiteral("running")
+                    : QStringLiteral("not responding (%1)").arg(error));
     finish();
   });
   checkUrl(fishProbe, [lines, ups, finish, fishBase, engine](bool up, QString error) {
     (*ups)[1] = up ? 1 : 0;
-    (*lines)[1] = QStringLiteral("  Fish Speech %1 at %2: %3")
-                  .arg(engine == "auto" ? QStringLiteral("(fallback)")
-                                        : engine == "fish" ? QStringLiteral("(primary)")
-                                                           : QStringLiteral("(unused)"),
-                       fishBase.toString(),
-                       up ? QStringLiteral("running") : QStringLiteral("not responding (%1)").arg(error));
+    (*lines)[1] =
+        QStringLiteral("  Fish Speech %1 at %2: %3")
+            .arg((engine == "auto" || engine == "x2streaming")
+                     ? QStringLiteral("(fallback)")
+                 : engine == "fish" ? QStringLiteral("(primary)")
+                                    : QStringLiteral("(unused)"),
+                 fishBase.toString(),
+                 up ? QStringLiteral("running")
+                    : QStringLiteral("not responding (%1)").arg(error));
     finish();
   });
 }
@@ -936,8 +1007,11 @@ QString Assistant::memoryCommand(const QString &args) {
 QString Assistant::clearScreenMemory(bool includePinned) {
   if (!m_store)
     return QStringLiteral("Screen memory is unavailable.");
-  const int gone = m_store->forgetSource("screen", includePinned);
-  const int pinned = m_store->countSource("screen", true);
+  int gone = 0, pinned = 0;
+  for (const auto *source : {"screen", "gui-trajectory", "gui-workflow"}) {
+    gone += m_store->forgetSource(source, includePinned);
+    pinned += m_store->countSource(source, true);
+  }
   m_log->record("memory", "cleared-screen", {{"count", gone}, {"includePinned", includePinned}});
   return QStringLiteral("Forgot %1 screen memories.%2")
       .arg(gone, 0)
@@ -1048,6 +1122,36 @@ static void benchOne(Assistant *self, LlmClient *llm, const QJsonArray &tools,
 
 void Assistant::benchmark(std::function<void(QString)> progress, std::function<void()> done,
                           const QString &only) {
+  if (only == "tts") {
+    if (m_voiceBench) {
+      progress("A TTS benchmark is already running.");
+      done();
+      return;
+    }
+    auto *x2 = new X2Tts(this);
+    X2Tts::Config config;
+    config.endpoint = QUrl(m_settings->string("tts.x2.endpoint"));
+    config.voice = m_settings->string("tts.x2.voice");
+    config.reuse = m_settings->flag("tts.x2.sessionReuse");
+    x2->configure(config);
+    auto *fish = new FishSpeech(&m_network, this);
+    fish->configure(QUrl(m_settings->string("tts.endpoint")),
+                    m_settings->string("tts.referenceId"),
+                    m_settings->flag("tts.streaming"),
+                    m_settings->string("tts.stylePrefix"));
+    auto *bench = new TtsBenchmark({x2, fish}, progress, done, this);
+    bench->configureCommitment(
+        {m_settings->integer("tts.x2.commit.minChars"),
+         m_settings->integer("tts.x2.commit.minChars"),
+         m_settings->integer("tts.x2.commit.maxChars"),
+         m_settings->string("tts.x2.commit.mode") == "clauses"},
+        m_settings->integer("tts.x2.commit.maxDelayMs"));
+    x2->setParent(bench);
+    fish->setParent(bench);
+    m_voiceBench = bench;
+    bench->start();
+    return;
+  }
   refreshModels([this, progress, done, only] {
     QStringList have;
     for (const catalog::Installed &i : m_installed)

@@ -8,7 +8,14 @@ This project follows [semantic versioning](https://semver.org/). The version
 lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what
 `nala --version` reports.
 
-## Unreleased
+## 1.5.0 — 2026-09-30
+
+- Add the native incremental X2 WebSocket backend, causal text commitment, per-utterance acoustic state, reusable transport, silent warmup, immediate cancellation and Fish fallback before first PCM. Preserve explicit legacy Qwen configurations.
+- Add local TTS benchmarks and commit/session/PCM/completion latency stages; label output submission and silent measurements accurately.
+- Prefer optional active-window AT-SPI semantics, support relative pointer corrections, adaptive stability, localized visual differences, intention-free evidence and expected-effect verification.
+- Verify typing through the controller; observe same-app popup outcomes, support keyboard strategies, and retain authoritative input/retry confirmations and turn cancellation.
+- Add opt-in semantic trajectories and verified workflow replay through normal guarded tools; honor memory pause/forget/retention and reject raw-coordinate procedures.
+- Add offline WebSocket/controller tests, isolated Nix-compatible runtime provisioning, local benchmark artifacts and architecture/research documentation.
 
 ## 1.4.2 — 2026-09-30
 
