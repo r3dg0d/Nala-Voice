@@ -7,6 +7,11 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.10+)
 
+1.5.4: a normal utterance skips a cooled-down primary when another
+engine is up. The dead engine's cooldown stays. If every engine is cooling
+down, voice stays broken until that cooldown ends; the 1.5.2 all-down retry
+is unchanged.
+
 1.5.3: `nala tts status` and doctor drop only the cooldown of an engine a
 probe found up. A primary that is still down stays skipped, so the next
 utterance does not open on it.

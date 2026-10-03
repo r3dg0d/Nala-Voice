@@ -202,6 +202,14 @@ QStringList TtsChain::downEngines() const {
   return down;
 }
 
+bool TtsChain::hasEngineUp() const {
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  for (int i = 0; i < m_engines.size(); ++i)
+    if (m_downUntil.value(i) <= now)
+      return true;
+  return false;
+}
+
 void TtsChain::releaseEngineCooldown(const QString &name) {
   for (int i = 0; i < m_engines.size(); ++i)
     if (m_engines.at(i)->name() == name)

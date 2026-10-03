@@ -3,6 +3,10 @@
 ## Unreleased
 - Report truncated SSE/Ollama streams as failures instead of accepting partial answers; preserve completion-marker compatibility and verify next-request recovery with fake-server tests.
 
+## 1.5.4 — 2026-10-02
+
+- A normal utterance skips a cooled-down primary when another voice is up, instead of waiting out the dead engine. That cooldown stays. If every engine is cooling down, she still waits; the all-down retry is unchanged.
+
 ## 1.5.3 — 2026-10-02
 
 - `nala tts status` and doctor drop only the cooldown of a voice a probe found up, so the next utterance skips a primary that is still down instead of opening on it.

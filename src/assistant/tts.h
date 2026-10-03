@@ -77,6 +77,9 @@ public:
   QString lastEngine() const { return m_lastEngine; }
   // Which engines are currently being skipped.
   QStringList downEngines() const;
+  // True when at least one engine is not cooling down. Does not clear any
+  // cooldown.
+  bool hasEngineUp() const;
   // Drop one engine's cooldown. A status or doctor probe that found this
   // engine up uses it so a still-down primary is not opened next.
   void releaseEngineCooldown(const QString &name);

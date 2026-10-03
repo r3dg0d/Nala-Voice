@@ -1312,11 +1312,18 @@ void Assistant::markVoiceBroken() {
 bool Assistant::voiceBrokenNow() const {
   if (!m_voiceBroken)
     return false;
+  // A cooled-down primary is skipped by the chain. That is not a broken
+  // voice when another engine can speak, so a normal utterance uses the one
+  // that is up instead of waiting out the dead one. Cooldowns stay put.
+  // If every engine is cooling down, keep waiting; the all-down retry still
+  // lives in TtsChain::releaseCooldownIfAllDown and is not changed here.
+  if (m_tts && m_tts->hasEngineUp() && !m_tts->downEngines().isEmpty())
+    return false;
   const int cool = m_tts ? m_tts->cooldownMs() : 30000;
   if (cool > 0 &&
       QDateTime::currentMSecsSinceEpoch() - m_voiceBrokenAt < cool)
     return true;
-  // Still skipping engines that failed recently: wait for their cooldown too.
+  // Every engine is still cooling down after the sticky window.
   if (m_tts && !m_tts->downEngines().isEmpty())
     return true;
   return false;

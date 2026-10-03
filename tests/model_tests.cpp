@@ -1311,6 +1311,40 @@ private slots:
     QVERIFY(!rig.a->voiceBrokenForTest());
   }
 
+  // A normal utterance must not wait out a cooled-down primary when another
+  // engine can speak. voiceBrokenNow() is the gate say() and voiceOn() use.
+  // Before the fix it stayed true for the whole cooldown whenever ANY engine
+  // was cooling down. The primary cooldown must stay; this does not clear it.
+  void normalUtteranceSkipsCooledPrimaryWhenAnotherEngineIsUp() {
+    Rig rig;
+    rig.a->setTtsCooldownMsForTest(60000);
+    rig.a->markVoiceBrokenForTest();
+    rig.a->coolTtsEngineForTest("x2streaming");
+    QCOMPARE(rig.a->ttsDownEnginesForTest(), QStringList{"x2streaming"});
+    QVERIFY(rig.a->voiceBrokenForTest());
+    QVERIFY(!rig.a->voiceBrokenNowForTest());
+    rig.a->recoverVoiceForTest();
+    QVERIFY(!rig.a->voiceBrokenForTest());
+    QCOMPARE(rig.a->ttsDownEnginesForTest(), QStringList{"x2streaming"});
+  }
+
+  // Every engine cooling down is still a broken voice. Do not wipe those
+  // cooldowns and do not recover early; the all-down retry stays in TtsChain.
+  void voiceStaysBrokenWhenEveryEngineIsCoolingDown() {
+    Rig rig;
+    rig.a->setTtsCooldownMsForTest(60000);
+    rig.a->markVoiceBrokenForTest();
+    rig.a->coolTtsEngineForTest("x2streaming");
+    rig.a->coolTtsEngineForTest("fish-speech");
+    QCOMPARE(rig.a->ttsDownEnginesForTest(),
+             QStringList({"x2streaming", "fish-speech"}));
+    QVERIFY(rig.a->voiceBrokenNowForTest());
+    rig.a->recoverVoiceForTest();
+    QVERIFY(rig.a->voiceBrokenForTest());
+    QCOMPARE(rig.a->ttsDownEnginesForTest(),
+             QStringList({"x2streaming", "fish-speech"}));
+  }
+
   // --- the assistant, end to end against a fake model server -------------------------
 private:
   struct Rig {
