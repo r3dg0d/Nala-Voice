@@ -149,22 +149,25 @@ public:
 };
 
 
-// Minimal HTTP 200 responder for stt status / doctor probes (no body parsing).
+// Minimal HTTP responder for stt/tts status probes (no body parsing).
+// statusCode defaults to 200; voice tests use 500 to simulate an error page.
 class TinyHttp : public QObject {
 public:
   QTcpServer server;
+  int statusCode = 200;
   TinyHttp() {
     server.listen(QHostAddress::LocalHost);
     connect(&server, &QTcpServer::newConnection, this, [this] {
       while (QTcpSocket *sock = server.nextPendingConnection()) {
-        connect(sock, &QTcpSocket::readyRead, sock, [sock] {
+        connect(sock, &QTcpSocket::readyRead, sock, [this, sock] {
           QByteArray buf = sock->property("buf").toByteArray() + sock->readAll();
           sock->setProperty("buf", buf);
           if (!buf.contains("\r\n\r\n") || sock->property("replied").toBool())
             return;
           sock->setProperty("replied", true);
-          sock->write("HTTP/1.1 200 OK\r\nConnection: close\r\n"
-                      "Content-Length: 2\r\n\r\nok");
+          const QByteArray reason = statusCode >= 200 && statusCode < 300 ? "OK" : "Error";
+          sock->write("HTTP/1.1 " + QByteArray::number(statusCode) + " " + reason +
+                      "\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok");
           sock->disconnectFromHost();
         });
       }
@@ -1710,6 +1713,34 @@ private slots:
     QVERIFY2(report.contains("Voice server is back"), qPrintable(report));
     QVERIFY2(!report.contains("Voice is off after an error"), qPrintable(report));
     QVERIFY(!assistant.voiceBrokenForTest());
+  }
+
+  // An HTTP error page is not a voice. Doctor already requires 2xx; status
+  // must not clear m_voiceBroken just because something answered.
+  void ttsStatusKeepsStickyWhenHealthIsHttpError() {
+    TinyHttp http;
+    http.statusCode = 500;
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("tts.engine", "auto");
+    assistant.settings()->set("tts.qwen.endpoint", http.url().toString());
+    auto x2Url = http.url();
+    x2Url.setScheme("ws");
+    assistant.settings()->set("tts.x2.endpoint", x2Url.toString());
+    assistant.settings()->set("tts.endpoint", http.url().toString());
+    assistant.markVoiceBrokenForTest();
+    QVERIFY(assistant.voiceBrokenForTest());
+
+    QString report;
+    bool done = false;
+    assistant.ttsStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("not responding"), qPrintable(report));
+    QVERIFY2(report.contains("Voice is off after an error"), qPrintable(report));
+    QVERIFY2(!report.contains("running"), qPrintable(report));
+    QVERIFY2(!report.contains("Voice server is back"), qPrintable(report));
+    QVERIFY(assistant.voiceBrokenForTest());
   }
 
   void ttsStatusKeepsStickyWhenServersStillDown() {

@@ -639,15 +639,25 @@ bool Assistant::applyModelPhrase(const QString &text) {
 
 // --- reachability ----------------------------------------------------------------------------------------
 
-void Assistant::checkUrl(const QUrl &url, std::function<void(bool, QString)> done) {
+void Assistant::checkUrl(const QUrl &url, std::function<void(bool, QString)> done,
+                         bool requireSuccess) {
   QNetworkRequest request(url);
   request.setTransferTimeout(2500);
   QNetworkReply *reply = m_network.get(request);
-  connect(reply, &QNetworkReply::finished, this, [reply, done] {
+  connect(reply, &QNetworkReply::finished, this, [reply, done, requireSuccess] {
     reply->deleteLater();
-    // Any HTTP status means a server is there.
+    // STT: any HTTP status means a server is there. Voice probes pass
+    // requireSuccess so they match doctor: an error page is not a voice.
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    done(status > 0, status > 0 ? QString() : reply->errorString());
+    const bool up = requireSuccess ? status >= 200 && status < 300 : status > 0;
+    QString error;
+    if (!up) {
+      error = reply->errorString();
+      if (requireSuccess && status > 0 &&
+          (reply->error() == QNetworkReply::NoError || error.isEmpty()))
+        error = QStringLiteral("HTTP %1").arg(status);
+    }
+    done(up, error);
   });
 }
 
@@ -692,7 +702,8 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
   const QUrl qwenBase(
       m_settings->string(x2 ? "tts.x2.endpoint" : "tts.qwen.endpoint"));
   const QUrl fishBase(m_settings->string("tts.endpoint"));
-  // Same paths as doctor so status and doctor agree on whether a voice is up.
+  // Same paths and success rule as doctor (HTTP 2xx). A 404/500 page is
+  // not a voice, and must not clear a sticky failure.
   const QUrl qwenProbe =
       x2 ? X2Tts::healthUrl(qwenBase)
          : withApiPath(qwenBase, QStringLiteral("/v1/models"));
@@ -774,7 +785,7 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
                  up ? QStringLiteral("running")
                     : QStringLiteral("not responding (%1)").arg(error));
     finish();
-  });
+  }, true);
   checkUrl(fishProbe, [lines, ups, finish, fishBase, engine](bool up, QString error) {
     (*ups)[1] = up ? 1 : 0;
     (*lines)[1] =
@@ -787,7 +798,7 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
                  up ? QStringLiteral("running")
                     : QStringLiteral("not responding (%1)").arg(error));
     finish();
-  });
+  }, true);
 }
 
 // --- nala model … ---------------------------------------------------------------------------------------------

@@ -3,6 +3,10 @@
 ## Unreleased
 - Report truncated SSE/Ollama streams as failures instead of accepting partial answers; preserve completion-marker compatibility and verify next-request recovery with fake-server tests.
 
+## 1.5.1 — 2026-10-02
+
+- `nala tts status` requires HTTP 2xx from X2 `/readyz` and Fish `/v1/health`, matching doctor, so an error page does not clear a sticky voice failure.
+
 
 This project follows [semantic versioning](https://semver.org/). The version
 lives in one place, `project(VERSION)` in `CMakeLists.txt`, and is what

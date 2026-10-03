@@ -7,6 +7,9 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.10+)
 
+`nala tts status` uses the same HTTP 2xx rule as doctor for X2 `/readyz` and
+Fish `/v1/health`. A 4xx/5xx page leaves `m_voiceBroken` set.
+
 1.3.10: mic recovery verified against a real PipeWire server. Qt does NOT report a
 removed PipeWire source (no signal, stale list, and the server re-links the stream to
 the default mic), so a selected microphone is watched via `pw-dump` every 3 s and

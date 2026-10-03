@@ -369,7 +369,8 @@ private:
   void compactHistory();
   void summarise(const QJsonArray &dropped);
   void finishLatency(bool spoken);
-  void checkUrl(const QUrl &url, std::function<void(bool, QString)> done);
+  void checkUrl(const QUrl &url, std::function<void(bool, QString)> done,
+              bool requireSuccess = false);
   void runToolCalls();
   QJsonObject systemMessage() const;
   QSet<QString> categories() const;
