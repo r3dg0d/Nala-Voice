@@ -719,19 +719,27 @@ void Assistant::ttsStatus(std::function<void(QString)> done) {
     QString text = QStringLiteral("Voice (TTS), engine: %1%2\n")
                        .arg(engine, m_settings->flag("tts.muted") ? QStringLiteral(" (muted)") : QString());
     text += lines->join('\n'); // Qwen3-TTS first, then Fish Speech, whoever answered first
-    const QStringList down = m_tts->downEngines();
-    if (!down.isEmpty())
-      text += QStringLiteral("\n  Skipping for now after a failure: %1").arg(down.join(", "));
     // Sync m_voiceBroken with the live probes (same as doctor): an applicable
     // engine answering clears a sticky failure so the next reply speaks again;
     // none answering marks voice broken. Engine "none" is intentional silence.
+    // Drop only that engine's cooldown first, so the skip line and the next
+    // utterance agree: a primary the probe did not find stays cooled down.
+    bool qwenOk = false;
+    bool fishOk = false;
     if (engine != QLatin1String("none")) {
-      const bool qwenOk =
+      qwenOk =
           (engine == "auto" || engine == "x2streaming" || engine == "qwen") &&
           (*ups)[0] == 1;
-      const bool fishOk =
+      fishOk =
           (engine == "auto" || engine == "x2streaming" || engine == "fish") &&
           (*ups)[1] == 1;
+      if (qwenOk || fishOk)
+        releaseProbedEngineCooldowns(qwenOk, fishOk);
+    }
+    const QStringList down = m_tts->downEngines();
+    if (!down.isEmpty())
+      text += QStringLiteral("\n  Skipping for now after a failure: %1").arg(down.join(", "));
+    if (engine != QLatin1String("none")) {
       const bool wasBroken = m_voiceBroken;
       if (qwenOk || fishOk) {
         m_voiceBroken = false;

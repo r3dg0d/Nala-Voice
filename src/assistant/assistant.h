@@ -235,6 +235,8 @@ public:
   bool voiceBrokenForTest() const { return m_voiceBroken; }
   bool voiceBrokenNowForTest() const { return voiceBrokenNow(); }
   void setTtsCooldownMsForTest(int ms);
+  void coolTtsEngineForTest(const QString &name);
+  QStringList ttsDownEnginesForTest() const;
 
   // Health of every backend, refreshed in the background. `done` gets a
   // human-readable report.
@@ -383,6 +385,8 @@ private:
   void speakNext();
   void markVoiceBroken();
   bool voiceBrokenNow() const;
+  // A live probe found these applicable engines up: drop only their cooldowns.
+  void releaseProbedEngineCooldowns(bool primaryUp, bool fishUp);
   void maybeRecoverVoice();
   void finishSpeaking();
   // Barge-in without AEC: tighten the wake gate while she talks.

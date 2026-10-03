@@ -7,6 +7,10 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.10+)
 
+1.5.3: `nala tts status` and doctor drop only the cooldown of an engine a
+probe found up. A primary that is still down stays skipped, so the next
+utterance does not open on it.
+
 1.5.2: `TtsChain::beginStream` uses the same cooldown rule as `synthesize`.
 If every engine is cooling down, the next stream tries them again instead of
 failing silent. A still-up fallback is still preferred.

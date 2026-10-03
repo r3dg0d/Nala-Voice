@@ -1715,6 +1715,63 @@ private slots:
     QVERIFY(!assistant.voiceBrokenForTest());
   }
 
+  // Both engines cooling down, and only the fallback answers the probe.
+  // Clearing every cooldown would make the next utterance open on the
+  // known-dead primary (releaseCooldownIfAllDown). Drop only the live one.
+  void ttsStatusDropsOnlyTheProbedEngineCooldown() {
+    TinyHttp fish;
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:9");
+    assistant.settings()->set("tts.engine", "auto");
+    assistant.settings()->set("tts.qwen.endpoint", "http://127.0.0.1:1");
+    assistant.settings()->set("tts.x2.endpoint", "ws://127.0.0.1:1/v1/ws");
+    assistant.settings()->set("tts.endpoint", fish.url().toString());
+    assistant.setTtsCooldownMsForTest(60000);
+    assistant.markVoiceBrokenForTest();
+    assistant.coolTtsEngineForTest("x2streaming");
+    assistant.coolTtsEngineForTest("fish-speech");
+    QCOMPARE(assistant.ttsDownEnginesForTest(),
+             QStringList({"x2streaming", "fish-speech"}));
+
+    QString report;
+    bool done = false;
+    assistant.ttsStatus([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 5000);
+    QVERIFY2(report.contains("Voice server is back"), qPrintable(report));
+    QVERIFY2(report.contains("Skipping for now after a failure: x2streaming"),
+             qPrintable(report));
+    QVERIFY2(!report.contains("fish-speech"), qPrintable(report));
+    QVERIFY(!assistant.voiceBrokenForTest());
+    QCOMPARE(assistant.ttsDownEnginesForTest(), QStringList{"x2streaming"});
+  }
+
+  void doctorDropsOnlyTheProbedEngineCooldown() {
+    TinyHttp fish;
+    QTemporaryDir dir;
+    Assistant assistant({dir.filePath("a.json"), dir.filePath("memory"), {}}, true);
+    assistant.settings()->set("llm.endpoint", "http://127.0.0.1:1/v1");
+    assistant.settings()->set("stt.serverUrl", "http://127.0.0.1:1");
+    assistant.settings()->set("stt.activation", "push");
+    assistant.settings()->set("memory.enabled", false);
+    assistant.settings()->set("tts.engine", "auto");
+    assistant.settings()->set("tts.qwen.endpoint", "http://127.0.0.1:1");
+    assistant.settings()->set("tts.x2.endpoint", "ws://127.0.0.1:1/v1/ws");
+    assistant.settings()->set("tts.endpoint", fish.url().toString());
+    assistant.setTtsCooldownMsForTest(60000);
+    assistant.markVoiceBrokenForTest();
+    assistant.coolTtsEngineForTest("x2streaming");
+    assistant.coolTtsEngineForTest("fish-speech");
+
+    QString report;
+    bool done = false;
+    assistant.diagnose([&](QString t) { report = t; done = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(done, 15000);
+    QVERIFY2(report.contains("Fish Speech"), qPrintable(report.left(500)));
+    QVERIFY(!assistant.voiceBrokenForTest());
+    QCOMPARE(assistant.ttsDownEnginesForTest(), QStringList{"x2streaming"});
+  }
+
   // An HTTP error page is not a voice. Doctor already requires 2xx; status
   // must not clear m_voiceBroken just because something answered.
   void ttsStatusKeepsStickyWhenHealthIsHttpError() {

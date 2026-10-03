@@ -77,6 +77,11 @@ public:
   QString lastEngine() const { return m_lastEngine; }
   // Which engines are currently being skipped.
   QStringList downEngines() const;
+  // Drop one engine's cooldown. A status or doctor probe that found this
+  // engine up uses it so a still-down primary is not opened next.
+  void releaseEngineCooldown(const QString &name);
+  // Tests: record a failure cooldown without contacting a server.
+  void markEngineDownForTest(const QString &name);
 
 private:
   void tryFrom(int index);

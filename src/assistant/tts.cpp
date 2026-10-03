@@ -202,6 +202,20 @@ QStringList TtsChain::downEngines() const {
   return down;
 }
 
+void TtsChain::releaseEngineCooldown(const QString &name) {
+  for (int i = 0; i < m_engines.size(); ++i)
+    if (m_engines.at(i)->name() == name)
+      m_downUntil[i] = 0;
+}
+
+void TtsChain::markEngineDownForTest(const QString &name) {
+  const qint64 until =
+      QDateTime::currentMSecsSinceEpoch() + std::max(m_cooldownMs, 1);
+  for (int i = 0; i < m_engines.size(); ++i)
+    if (m_engines.at(i)->name() == name)
+      m_downUntil[i] = until;
+}
+
 void TtsChain::synthesize(const QString &text) {
   stop();
   m_streaming = false;

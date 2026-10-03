@@ -299,6 +299,34 @@ private slots:
     QCOMPARE(primary.texts, QStringList{"Again."});
     QCOMPARE(fallback.texts, QStringList{"Hello."});
   }
+  // A probe that found only the fallback up must not reopen the dead primary.
+  void probedFallbackCooldownSkipsDeadPrimary() {
+    Voice primary, fallback;
+    primary.streaming = fallback.streaming = true;
+    primary.id = "primary";
+    fallback.id = "fallback";
+    primary.failStarts = 1;
+    fallback.failStarts = 1;
+    TtsChain chain;
+    chain.setCooldownMs(60000);
+    chain.setEngines({&primary, &fallback});
+    QSignalSpy failed(&chain, &TextToSpeech::failed);
+    chain.beginStream();
+    QCOMPARE(failed.size(), 1);
+    QCOMPARE(primary.starts, 1);
+    QCOMPARE(fallback.starts, 1);
+    QCOMPARE(chain.downEngines(), QStringList({"primary", "fallback"}));
+
+    chain.releaseEngineCooldown("fallback");
+    QCOMPARE(chain.downEngines(), QStringList{"primary"});
+
+    failed.clear();
+    chain.beginStream();
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(primary.starts, 1);
+    QCOMPARE(fallback.starts, 2);
+    QCOMPARE(chain.downEngines(), QStringList{"primary"});
+  }
   void neverReplayAfterPcm() {
     Voice primary, fallback;
     primary.streaming = true;

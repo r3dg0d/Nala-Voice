@@ -3,6 +3,10 @@
 ## Unreleased
 - Report truncated SSE/Ollama streams as failures instead of accepting partial answers; preserve completion-marker compatibility and verify next-request recovery with fake-server tests.
 
+## 1.5.3 — 2026-10-02
+
+- `nala tts status` and doctor drop only the cooldown of a voice a probe found up, so the next utterance skips a primary that is still down instead of opening on it.
+
 ## 1.5.2 — 2026-10-02
 
 - A streaming reply retries cooled-down voices with the same rule as a spoken sentence: skip engines still cooling down, but if every engine is cooling down, try them again instead of staying silent.

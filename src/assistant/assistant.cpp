@@ -1338,6 +1338,27 @@ void Assistant::setTtsCooldownMsForTest(int ms) {
     m_tts->setCooldownMs(ms);
 }
 
+void Assistant::coolTtsEngineForTest(const QString &name) {
+  if (m_tts)
+    m_tts->markEngineDownForTest(name);
+}
+
+QStringList Assistant::ttsDownEnginesForTest() const {
+  return m_tts ? m_tts->downEngines() : QStringList{};
+}
+
+void Assistant::releaseProbedEngineCooldowns(bool primaryUp, bool fishUp) {
+  if (!m_tts)
+    return;
+  const QString engine = m_settings->string("tts.engine");
+  if (primaryUp)
+    m_tts->releaseEngineCooldown(engine == QLatin1String("qwen")
+                                     ? QStringLiteral("qwen3-tts")
+                                     : QStringLiteral("x2streaming"));
+  if (fishUp)
+    m_tts->releaseEngineCooldown(QStringLiteral("fish-speech"));
+}
+
 // --- speaking ------------------------------------------------------------------
 
 void Assistant::say(const QString &text, bool speak) {
@@ -1713,9 +1734,12 @@ void Assistant::diagnose(std::function<void(QString)> done) {
     const bool fishOk =
         (engine == "auto" || engine == "x2streaming" || engine == "fish") &&
         (*voices)[1] == 1;
-    if (qwenOk || fishOk)
+    if (qwenOk || fishOk) {
+      // Only the engine the probe found up. Clearing every cooldown would
+      // make the next utterance open on a primary that is still down.
+      releaseProbedEngineCooldowns(qwenOk, fishOk);
       m_voiceBroken = false;
-    else
+    } else
       markVoiceBroken();
   };
   const QString engine = m_settings->string("tts.engine");
