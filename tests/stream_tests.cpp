@@ -72,9 +72,19 @@ public:
   QStringList texts;
   bool streaming = false, failFormat = false;
   int starts = 0;
-  QString name() const override { return streaming ? "stream" : "fallback"; }
+  QString id;
+  int failStarts = 0;
+  QString name() const override {
+    return !id.isEmpty() ? id : streaming ? "stream" : "fallback";
+  }
   bool incremental() const override { return streaming; }
-  void beginStream() override { ++starts; }
+  void beginStream() override {
+    ++starts;
+    if (failStarts > 0) {
+      --failStarts;
+      emit failed("offline");
+    }
+  }
   void pushText(const QString &text) override { texts << text; }
   void finishStream() override { emit done(); }
   void synthesize(const QString &text) override {
@@ -238,6 +248,56 @@ private slots:
     chain.finishStream();
     QCOMPARE(fallback.texts, QStringList{"Hello world."});
     QCOMPARE(done.size(), 1);
+  }
+  void streamRetriesWhenEveryEngineIsCoolingDown() {
+    Voice primary, fallback;
+    primary.streaming = fallback.streaming = true;
+    primary.id = "primary";
+    fallback.id = "fallback";
+    primary.failStarts = 1;
+    TtsChain chain;
+    chain.setCooldownMs(60000);
+    chain.setEngines({&primary, &fallback});
+    QSignalSpy failed(&chain, &TextToSpeech::failed);
+    QSignalSpy done(&chain, &TextToSpeech::done);
+
+    // One engine is still up: skip the cooled primary. Do not clear it.
+    chain.beginStream();
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(primary.starts, 1);
+    QCOMPARE(fallback.starts, 1);
+    QCOMPARE(chain.downEngines(), QStringList{"primary"});
+    chain.pushText("Hello.");
+    QCOMPARE(primary.texts, QStringList{});
+    QCOMPARE(fallback.texts, QStringList{"Hello."});
+    chain.finishStream();
+    QCOMPARE(done.size(), 1);
+
+    chain.beginStream();
+    QCOMPARE(primary.starts, 1);
+    QCOMPARE(fallback.starts, 2);
+    QCOMPARE(chain.downEngines(), QStringList{"primary"});
+    chain.finishStream();
+
+    // Now every engine is cooling down. synthesize would retry rather than
+    // stay silent; a new stream must use that same policy.
+    fallback.failStarts = 1;
+    done.clear();
+    chain.beginStream();
+    QCOMPARE(failed.size(), 1);
+    QCOMPARE(primary.starts, 1);
+    QCOMPARE(fallback.starts, 3);
+    const QStringList bothDown{"primary", "fallback"};
+    QCOMPARE(chain.downEngines(), bothDown);
+
+    failed.clear();
+    chain.beginStream();
+    QCOMPARE(failed.size(), 0);
+    QCOMPARE(primary.starts, 2);
+    QCOMPARE(chain.downEngines(), QStringList{});
+    chain.pushText("Again.");
+    QCOMPARE(primary.texts, QStringList{"Again."});
+    QCOMPARE(fallback.texts, QStringList{"Hello."});
   }
   void neverReplayAfterPcm() {
     Voice primary, fallback;

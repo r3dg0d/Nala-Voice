@@ -3,6 +3,10 @@
 ## Unreleased
 - Report truncated SSE/Ollama streams as failures instead of accepting partial answers; preserve completion-marker compatibility and verify next-request recovery with fake-server tests.
 
+## 1.5.2 — 2026-10-02
+
+- A streaming reply retries cooled-down voices with the same rule as a spoken sentence: skip engines still cooling down, but if every engine is cooling down, try them again instead of staying silent.
+
 ## 1.5.1 — 2026-10-02
 
 - `nala tts status` requires HTTP 2xx from X2 `/readyz` and Fish `/v1/health`, matching doctor, so an error page does not clear a sticky voice failure.

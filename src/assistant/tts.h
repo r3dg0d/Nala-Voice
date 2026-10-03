@@ -53,7 +53,9 @@ private:
 // Tries engines in order. A sentence that fails before any audio has played is
 // retried on the next engine, so a fallback voice takes over without a gap in
 // the reply; an engine that has failed is left alone for a while so every later
-// sentence does not pay for the timeout again.
+// sentence does not pay for the timeout again. If every engine is cooling
+// down, the next spoken or streamed request tries them rather than staying
+// silent.
 class TtsChain : public TextToSpeech {
   Q_OBJECT
 
@@ -78,6 +80,9 @@ public:
 
 private:
   void tryFrom(int index);
+  // Same rule for synthesize and beginStream: skip engines that are cooling
+  // down, but if every one is, clear the cooldown and try them.
+  void releaseCooldownIfAllDown();
 
   QVector<TextToSpeech *> m_engines;
   QVector<qint64> m_downUntil; // ms since epoch

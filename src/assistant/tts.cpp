@@ -209,6 +209,11 @@ void TtsChain::synthesize(const QString &text) {
   m_errors.clear();
   m_stopped = false;
   m_audioStarted = false;
+  releaseCooldownIfAllDown();
+  tryFrom(0);
+}
+
+void TtsChain::releaseCooldownIfAllDown() {
   // Prefer engines that are not cooling down; if every one is, try them all
   // rather than staying silent.
   const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -217,7 +222,6 @@ void TtsChain::synthesize(const QString &text) {
     anyUp = anyUp || m_downUntil.value(i) <= now;
   if (!anyUp)
     m_downUntil.fill(0);
-  tryFrom(0);
 }
 
 void TtsChain::tryFrom(int index) {
@@ -262,6 +266,7 @@ void TtsChain::beginStream() {
   m_streaming = true;
   m_inputDone = m_audioStarted = false;
   m_stopped = false;
+  releaseCooldownIfAllDown();
   tryFrom(0);
 }
 

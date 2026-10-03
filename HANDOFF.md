@@ -7,6 +7,10 @@ For whoever works on this next — person or agent. Read this, then
 
 ## Where things stand (1.3.10+)
 
+1.5.2: `TtsChain::beginStream` uses the same cooldown rule as `synthesize`.
+If every engine is cooling down, the next stream tries them again instead of
+failing silent. A still-up fallback is still preferred.
+
 `nala tts status` uses the same HTTP 2xx rule as doctor for X2 `/readyz` and
 Fish `/v1/health`. A 4xx/5xx page leaves `m_voiceBroken` set.
 
