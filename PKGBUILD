@@ -35,6 +35,10 @@ check() {
   QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= HYPRLAND_INSTANCE_SIGNATURE= \
     ./build/nala-assistant-tests
   QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= ./build/nala-model-tests
+  QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= HYPRLAND_INSTANCE_SIGNATURE= \
+    ./build/nala-agent-tests
+  QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= HYPRLAND_INSTANCE_SIGNATURE= \
+    ./build/nala-stream-tests
 }
 
 package() {
